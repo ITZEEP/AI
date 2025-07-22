@@ -10,6 +10,7 @@ import cv2
 from typing import Optional, List, Tuple
 from google.cloud import vision
 from dotenv import load_dotenv
+from datetime import datetime
 
 # ✅ 환경 변수 및 Vision API 클라이언트 설정
 load_dotenv()
@@ -79,20 +80,6 @@ def ocr_google_vision(image_np):
                         result.append((bounding_box, word_text))
     return result
 
-# ✅ OCR 결과 저장 + Y좌표 추출 디버깅
-
-
-def save_ocr_debug_info(ocr_results: List[Tuple[List[Tuple[int, int]], str]], output_path="ocr_debug.json"):
-    debug_data = []
-    for bounding_box, text in ocr_results:
-        debug_data.append({
-            "text": text,
-            "bounding_box": bounding_box
-        })
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(debug_data, f, ensure_ascii=False, indent=2)
-    print(f"[디버그 파일 저장 완료]: {output_path}")
-
 
 def find_coordinate_markers_debug(ocr_results: List[Tuple[List[Tuple[int, int]], str]]) -> Tuple[float, float]:
     special_terms_y = None
@@ -138,8 +125,6 @@ def extract_special_terms_image_pdf(pdf_path: str) -> str:
         ocr_results = ocr_google_vision(image)
         if not ocr_results:
             continue
-        # 디버깅 정보 저장 및 좌표 추출
-        save_ocr_debug_info(ocr_results, "ocr_debug.json")
         start_y, end_y = find_coordinate_markers_debug(ocr_results)
         if not start_y or not end_y:
             continue
@@ -151,21 +136,50 @@ def extract_special_terms_image_pdf(pdf_path: str) -> str:
 # 최종 자동 분기 함수
 
 
-def extract_special_terms(pdf_path: str) -> str:
+def extract_special_terms(pdf_path):
+    """계약서 특약사항 추출 후 딕셔너리 반환"""
+    result = {
+        "file_name": os.path.basename(pdf_path),
+        "extracted_at": datetime.now().isoformat(),
+        "source": "text",
+    }
+
     try:
         with pdfplumber.open(pdf_path) as pdf:
             text = pdf.pages[0].extract_text()
             if text and len(text.strip()) > 100:
-                return extract_special_terms_text_pdf(pdf_path)
+                extracted = extract_special_terms_text_pdf(pdf_path)
+                result["source"] = "text"
             else:
-                return extract_special_terms_image_pdf(pdf_path)
+                extracted = extract_special_terms_image_pdf(pdf_path)
+                result["source"] = "image"
+            result["special_terms"] = extracted.strip()
     except Exception as e:
-        return f"[오류 발생]: {e}"
+        result["error"] = str(e)
+
+    return result
+
+
+def save_json(output_dict, output_path):
+    """JSON 파일로 저장"""
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(output_dict, f, ensure_ascii=False, indent=2)
 
 
 # ✅ 실행 예시
 if __name__ == "__main__":
-    pdf_path = "../../example/20231006_02.pdf"
-    result = extract_special_terms(pdf_path)
-    print("\n추출 결과:")
-    print(result)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="계약서 특약사항 추출기")
+    parser.add_argument("file", type=str, help="계약서 PDF 파일 경로")
+    args = parser.parse_args()
+
+    data = extract_special_terms(args.file)
+
+    output_dir = "../data/output/contract_json"
+    base_name = os.path.splitext(os.path.basename(args.file))[0]
+    output_path = os.path.join(output_dir, f"{base_name}_특약.json")
+
+    save_json(data, output_path)
+    print(f"[✔] 저장 완료: {output_path}")
