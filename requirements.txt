@@ -1,0 +1,6 @@
+google-cloud-vision
+python-dotenv
+opencv-python
+PyMuPDF
+numpy<2
+pdfplumber
