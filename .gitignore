@@ -1,0 +1,5 @@
+# 보안 
+.env
+private_key.json
+data/*
+example/*
