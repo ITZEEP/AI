@@ -2,13 +2,14 @@ import pdfplumber
 import re
 import json
 import os
-from ..config.logger_config import get_logger
 
-logger = get_logger(__name__)
+from datetime import datetime
 
 
 def extract_all_real_estate_info(file_path):
     result = {
+        "file_name": os.path.basename(file_path),
+        "extracted_at": datetime.now().isoformat(),
         "표제부": {
             "소재지번_건물명칭": None,
             "건물번호": None,
@@ -26,9 +27,6 @@ def extract_all_real_estate_info(file_path):
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
-            if not text or len(text.strip()) < 30:
-                logger.warning(
-                    f"[주의] 페이지 {page+1}에서 텍스트가 너무 적습니다. 이미지 기반 PDF일 수 있음.")
             if page_text:
                 title_text_blocks.append(page_text)
                 if result["발행일"] is None:
