@@ -19,6 +19,7 @@
 - [ ] 리뷰어를 지정했는가?
 
 ## 📢 To Reviewers
+@coderabbitai review
 
 <!-- 선택 사항 -->
 
