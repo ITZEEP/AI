@@ -1,3 +1,4 @@
+
 import fitz  # PyMuPDF
 import cv2
 import numpy as np
@@ -21,7 +22,13 @@ class BuildingInfoExtractor:
         if not json_path or not os.path.exists(json_path):
             raise RuntimeError(
                 "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
-        self.vision_client = vision.ImageAnnotatorClient()
+        # 클라이언트를 None으로 초기화하고 필요할 때 생성
+        self._vision_client = None
+
+    def get_vision_client(self):
+        if self._vision_client is None:
+            self._vision_client = vision.ImageAnnotatorClient()
+        return self._vision_client
 
     def pixmap_to_bgr(self, pix) -> np.ndarray:
         """PyMuPDF pixmap을 OpenCV BGR 이미지로 변환"""
@@ -38,12 +45,15 @@ class BuildingInfoExtractor:
     def ocr_google_vision(self, image_np: np.ndarray) -> List[tuple]:
         """Google Vision API를 사용한 OCR - 단어별 위치 정보와 함께 반환"""
         try:
+            # Vision 클라이언트 가져오기
+            vision_client = self.get_vision_client()
+
             success, encoded_image = cv2.imencode('.png', image_np)
             if not success:
                 raise RuntimeError("이미지 인코딩 실패")
 
             image = vision.Image(content=encoded_image.tobytes())
-            response = self.vision_client.document_text_detection(image=image)
+            response = vision_client.document_text_detection(image=image)
 
             if response.error.message:
                 raise RuntimeError(
@@ -89,9 +99,7 @@ class BuildingInfoExtractor:
     def extract_building_info_from_crop(self, pdf_path: str, last_word: str = "m",
                                         output_dir: str = "../data/output/building_json") -> Optional[Dict]:
         """건축물대장 PDF에서 정보를 추출하는 함수"""
-        doc = fitz.open(pdf_path)
-
-        try:
+        with fitz.open(pdf_path) as doc:
             if self.is_text_based_pdf(pdf_path):
                 print("텍스트 기반 PDF 처리 중...")
                 result = self.extract_text_based_pdf(doc, last_word)
@@ -102,13 +110,7 @@ class BuildingInfoExtractor:
             if result:
                 self.save_to_json(result, pdf_path, output_dir)
 
-            doc.close()
             return result
-
-        except Exception as e:
-            doc.close()
-            print(f"❌ 건축물대장 정보 추출 실패: {e}")
-            return None
 
     def extract_text_based_pdf(self, doc, last_word: str) -> Optional[Dict]:
         """텍스트 기반 PDF 처리 - 기존 로직 사용하되 연면적 수정"""

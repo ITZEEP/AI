@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from google.cloud import vision
 from dotenv import load_dotenv
+import logging
 
 
 from datetime import datetime
@@ -340,40 +341,57 @@ def extract_all_text_from_pdf(file_path):
 
 def check_legal_status(text_content, legal_status):
     """전체 텍스트에서 법적 상태 관련 키워드 확인"""
+    logger = logging.getLogger(__name__)
 
     # 가압류 관련 키워드
     seizure_keywords = ["가압류", "가압류등기", "가압류신청", "가압류명령", "가압류결정"]
+    seizure_negative = ["가압류해제", "가압류취소", "가압류말소"]
 
     # 경매 관련 키워드
     auction_keywords = ["경매", "경매개시", "경매신청", "경매개시결정", "강제경매", "임의경매"]
+    auction_negative = ["경매취소", "경매말소"]
 
     # 소송 관련 키워드
     lawsuit_keywords = ["소송", "민사소송",
                         "소유권이전등기청구", "소유권이전등기말소", "소유권확인", "손해배상"]
+    lawsuit_negative = ["소송취소", "소송말소"]
 
     # 압류 관련 키워드
     attachment_keywords = ["압류", "압류등기", "압류신청", "압류명령", "압류결정", "강제집행"]
+    attachment_negative = ["압류취소", "압류말소"]
 
     # 키워드 검사
     for keyword in seizure_keywords:
         if keyword in text_content:
-            legal_status["가압류_여부"] = True
-            break
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in seizure_negative):
+                legal_status["가압류_여부"] = True
+                logger.info(f"가압류 키워드 발견: {keyword}")
+                break
 
     for keyword in auction_keywords:
         if keyword in text_content:
-            legal_status["경매_여부"] = True
-            break
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in auction_negative):
+                legal_status["경매_여부"] = True
+                logger.info(f"경매 키워드 발견: {keyword}")
+                break
 
     for keyword in lawsuit_keywords:
         if keyword in text_content:
-            legal_status["소송_여부"] = True
-            break
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in lawsuit_negative):
+                legal_status["소송_여부"] = True
+                logger.info(f"소송 키워드 발견: {keyword}")
+                break
 
     for keyword in attachment_keywords:
         if keyword in text_content:
-            legal_status["압류_여부"] = True
-            break
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in attachment_negative):
+                legal_status["압류_여부"] = True
+                logger.info(f"압류 키워드 발견: {keyword}")
+                break
 
 
 def extract_title_section_info(table_data, title_data):

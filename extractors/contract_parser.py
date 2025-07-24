@@ -66,7 +66,7 @@ def parse_special_terms_to_list(text: str) -> List[str]:
             if current_item.strip():
                 items.append(current_item.strip())
             # 새 항목 시작
-            current_item = re.sub(r'^\s*(\d+[\.\)]|[-•○①㈀])\s*', '', line)
+            current_item = re.sub(r'^\s*(\d+[\.\)]|[-•○①㈀Ÿ])\s*', '', line)
         else:
             # 기존 항목에 추가 (연속된 내용)
             if current_item:
@@ -79,7 +79,7 @@ def parse_special_terms_to_list(text: str) -> List[str]:
         items.append(current_item.strip())
 
     # 빈 항목 제거 및 정리
-    return [item for item in items if item and len(item.strip()) > 3]
+    return [item for item in items if item and item.strip()]
 
 
 # ✅ 텍스트 기반 PDF 특약사항 추출
@@ -222,6 +222,7 @@ def extract_special_terms(pdf_path):
     except Exception as e:
         result["error"] = str(e)
         result["special_terms"] = []
+        result["raw_text"] = ""
 
     return result
 
