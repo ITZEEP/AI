@@ -16,7 +16,7 @@ _vision_client = None
 
 
 def get_vision_client():
-    global _vision_clinet
+    global _vision_client
     if _vision_client is None:
         load_dotenv()
         json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")

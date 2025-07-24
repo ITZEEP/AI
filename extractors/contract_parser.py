@@ -13,16 +13,76 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 # ✅ 환경 변수 및 Vision API 클라이언트 설정
-load_dotenv()
-json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-if not json_path or not os.path.exists(json_path):
-    raise RuntimeError(
-        "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
-vision_client = vision.ImageAnnotatorClient()
+_vision_client = None
+
+
+def get_vision_client():
+    global _vision_client
+    if _vision_client is None:
+        load_dotenv()
+        json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if not json_path or not os.path.exists(json_path):
+            raise RuntimeError(
+                "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
+        _vision_client = vision.ImageAnnotatorClient()
+    return _vision_client
+
+
+def parse_special_terms_to_list(text: str) -> List[str]:
+    """특약사항 텍스트를 번호나 불릿 포인트 기준으로 분리"""
+    if not text or text.strip() == "[특약사항 추출 실패]":
+        return []
+
+    # 다양한 패턴으로 분리
+    patterns = [
+        r'^\s*(\d+)\.\s*',  # 1. 2. 3. 형식
+        r'^\s*(\d+)\)\s*',  # 1) 2) 3) 형식
+        r'^\s*-\s*',        # - 형식
+        r'^\s*•\s*',        # • 형식
+        r'^\s*○\s*',        # ○ 형식
+        r'^\s*①\s*',        # ① 형식 (원문자)
+        r'^\s*㈀\s*',        # ㈀ 형식
+        r'^\s*Ÿ\s*',        # Ÿ 형식
+    ]
+
+    lines = text.strip().split('\n')
+    items = []
+    current_item = ""
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # 패턴 매칭 확인
+        is_new_item = False
+        for pattern in patterns:
+            if re.match(pattern, line):
+                is_new_item = True
+                break
+
+        if is_new_item:
+            # 이전 항목이 있으면 저장
+            if current_item.strip():
+                items.append(current_item.strip())
+            # 새 항목 시작
+            current_item = re.sub(r'^\s*(\d+[\.\)]|[-•○①㈀])\s*', '', line)
+        else:
+            # 기존 항목에 추가 (연속된 내용)
+            if current_item:
+                current_item += " " + line
+            else:
+                current_item = line
+
+    # 마지막 항목 추가
+    if current_item.strip():
+        items.append(current_item.strip())
+
+    # 빈 항목 제거 및 정리
+    return [item for item in items if item and len(item.strip()) > 3]
+
 
 # ✅ 텍스트 기반 PDF 특약사항 추출
-
-
 def extract_special_terms_text_pdf(pdf_path: str) -> str:
     buffer = []
     extracting = False
@@ -65,7 +125,7 @@ def ocr_google_vision(image_np):
     if not success:
         raise RuntimeError("이미지 인코딩 실패")
     image = vision.Image(content=encoded_image.tobytes())
-    response = vision_client.document_text_detection(image=image)
+    response = get_vision_client().document_text_detection(image=image)
     if response.error.message:
         raise RuntimeError(f"Google Vision API 오류: {response.error.message}")
     result = []
@@ -148,14 +208,20 @@ def extract_special_terms(pdf_path):
         with pdfplumber.open(pdf_path) as pdf:
             text = pdf.pages[0].extract_text()
             if text and len(text.strip()) > 100:
-                extracted = extract_special_terms_text_pdf(pdf_path)
+                extracted_text = extract_special_terms_text_pdf(pdf_path)
                 result["source"] = "text"
             else:
-                extracted = extract_special_terms_image_pdf(pdf_path)
+                extracted_text = extract_special_terms_image_pdf(pdf_path)
                 result["source"] = "image"
-            result["special_terms"] = extracted.strip()
+
+            # 특약사항을 리스트로 분리
+            special_terms_list = parse_special_terms_to_list(extracted_text)
+            result["special_terms"] = special_terms_list
+            result["raw_text"] = extracted_text.strip()  # 원본 텍스트도 보관
+
     except Exception as e:
         result["error"] = str(e)
+        result["special_terms"] = []
 
     return result
 
@@ -183,3 +249,9 @@ if __name__ == "__main__":
 
     save_json(data, output_path)
     print(f"[✔] 저장 완료: {output_path}")
+
+    # 결과 미리보기
+    if "special_terms" in data:
+        print(f"\n📋 추출된 특약사항 ({len(data['special_terms'])}개):")
+        for i, term in enumerate(data['special_terms'], 1):
+            print(f"{i}. {term[:100]}{'...' if len(term) > 100 else ''}")
