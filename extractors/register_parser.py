@@ -12,12 +12,19 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 # ✅ 환경 변수 및 Vision API 클라이언트 설정
-load_dotenv()
-json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-if not json_path or not os.path.exists(json_path):
-    raise RuntimeError(
-        "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
-vision_client = vision.ImageAnnotatorClient()
+_vision_client = None
+
+
+def get_vision_client():
+    global _vision_clinet
+    if _vision_client is None:
+        load_dotenv()
+        json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if not json_path or not os.path.exists(json_path):
+            raise RuntimeError(
+                "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
+        _vision_client = vision.ImageAnnotatorClient()
+    return _vision_client
 
 
 def pixmap_to_bgr(pix):
@@ -37,7 +44,7 @@ def ocr_google_vision(image_np):
     if not success:
         raise RuntimeError("이미지 인코딩 실패")
     image = vision.Image(content=encoded_image.tobytes())
-    response = vision_client.document_text_detection(image=image)
+    response = get_vision_client().document_text_detection(image=image)
     if response.error.message:
         raise RuntimeError(f"Google Vision API 오류: {response.error.message}")
     return response
@@ -52,30 +59,29 @@ def is_image_based_pdf(file_path):
                 if text and len(text.strip()) > 100:  # 충분한 텍스트가 있으면 텍스트 기반
                     return False
         return True  # 텍스트가 거의 없으면 이미지 기반
-    except:
+    except Exception as e:
+        print(f"PDF 유형 확인 중 오류 발생: {e}")
         return True
 
 
 def extract_text_from_image_pdf(file_path):
     """이미지 기반 PDF에서 OCR로 텍스트 추출"""
     all_text = ""
-    doc = fitz.open(file_path)
+    with fitz.open(file_path) as doc:
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            pix = page.get_pixmap(dpi=200)
+            image = pixmap_to_bgr(pix)
 
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        pix = page.get_pixmap(dpi=200)
-        image = pixmap_to_bgr(pix)
+            try:
+                response = ocr_google_vision(image)
+                if response.full_text_annotation:
+                    page_text = response.full_text_annotation.text
+                    all_text += page_text + "\n"
+            except Exception as e:
+                print(f"페이지 {page_num + 1} OCR 처리 중 오류: {e}")
+                continue
 
-        try:
-            response = ocr_google_vision(image)
-            if response.full_text_annotation:
-                page_text = response.full_text_annotation.text
-                all_text += page_text + "\n"
-        except Exception as e:
-            print(f"페이지 {page_num + 1} OCR 처리 중 오류: {e}")
-            continue
-
-    doc.close()
     return all_text
 
 
@@ -103,13 +109,13 @@ def parse_ocr_text_for_registration(ocr_text):
 
     # 소재지번 추출
     for line in lines:
-        if any(keyword in line for keyword in ["소재지번", "건물명칭", "도로명주소"]):
-            if any(addr_keyword in line for addr_keyword in [
-                "서울", "경기", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
-                "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"
-            ]):
-                result["표제부"]["소재지번_건물명칭"] = line.strip()
-                break
+        if (any(keyword in line for keyword in ["소재지번", "건물명칭", "도로명주소"]) and
+                any(addr_keyword in line for addr_keyword in [
+                    "서울", "경기", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+                    "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"
+                ])):
+            result["표제부"]["소재지번_건물명칭"] = line.strip()
+            break
 
     # 건물번호 추출
     for line in lines:
