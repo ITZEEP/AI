@@ -2,8 +2,160 @@ import pdfplumber
 import re
 import json
 import os
+import fitz
+import cv2
+import numpy as np
+from google.cloud import vision
+from dotenv import load_dotenv
+import logging
+
 
 from datetime import datetime
+
+# ✅ 환경 변수 및 Vision API 클라이언트 설정
+_vision_client = None
+
+
+def get_vision_client():
+    global _vision_client
+    if _vision_client is None:
+        load_dotenv()
+        json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if not json_path or not os.path.exists(json_path):
+            raise RuntimeError(
+                "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
+        _vision_client = vision.ImageAnnotatorClient()
+    return _vision_client
+
+
+def pixmap_to_bgr(pix):
+    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+        pix.h, pix.w, pix.n)
+    if pix.n == 4:
+        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+    elif pix.n == 1:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif pix.n == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    return img
+
+
+def ocr_google_vision(image_np):
+    success, encoded_image = cv2.imencode('.png', image_np)
+    if not success:
+        raise RuntimeError("이미지 인코딩 실패")
+    image = vision.Image(content=encoded_image.tobytes())
+    response = get_vision_client().document_text_detection(image=image)
+    if response.error.message:
+        raise RuntimeError(f"Google Vision API 오류: {response.error.message}")
+    return response
+
+
+def is_image_based_pdf(file_path):
+    """PDF가 이미지 기반인지 확인"""
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages[:3]:  # 처음 3페이지만 확인
+                text = page.extract_text()
+                if text and len(text.strip()) > 100:  # 충분한 텍스트가 있으면 텍스트 기반
+                    return False
+        return True  # 텍스트가 거의 없으면 이미지 기반
+    except Exception as e:
+        print(f"PDF 유형 확인 중 오류 발생: {e}")
+        return True
+
+
+def extract_text_from_image_pdf(file_path):
+    """이미지 기반 PDF에서 OCR로 텍스트 추출"""
+    all_text = ""
+    with fitz.open(file_path) as doc:
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            pix = page.get_pixmap(dpi=200)
+            image = pixmap_to_bgr(pix)
+
+            try:
+                response = ocr_google_vision(image)
+                if response.full_text_annotation:
+                    page_text = response.full_text_annotation.text
+                    all_text += page_text + "\n"
+            except Exception as e:
+                print(f"페이지 {page_num + 1} OCR 처리 중 오류: {e}")
+                continue
+
+    return all_text
+
+
+def parse_ocr_text_for_registration(ocr_text):
+    """OCR로 추출된 텍스트를 파싱하여 등기부 정보 추출"""
+    result = {
+        "표제부": {
+            "소재지번_건물명칭": None,
+            "건물번호": None,
+            "건물내역": None
+        },
+        "발행일": None,
+        "갑구": [],
+        "을구": []
+    }
+
+    lines = ocr_text.split('\n')
+
+    # 발행일 추출
+    for line in lines:
+        match = re.search(r"발행일\s*(\d{4}[./]\d{2}[./]\d{2})", line)
+        if match:
+            result["발행일"] = match.group(1).replace('.', '/').replace('-', '/')
+            break
+
+    # 소재지번 추출
+    for line in lines:
+        if (any(keyword in line for keyword in ["소재지번", "건물명칭", "도로명주소"]) and
+                any(addr_keyword in line for addr_keyword in [
+                    "서울", "경기", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+                    "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"
+                ])):
+            result["표제부"]["소재지번_건물명칭"] = line.strip()
+            break
+
+    # 건물번호 추출
+    for line in lines:
+        if re.search(r'제?\d+층.*제?\d+호|제?\d+호', line) and "m2" not in line and "㎡" not in line:
+            result["표제부"]["건물번호"] = line.strip()
+            break
+
+    # 건물내역 추출
+    for line in lines:
+        if re.search(r'.*구\s*조.*\d+\.?\d*\s*(m2|㎡)', line):
+            result["표제부"]["건물내역"] = line.strip()
+            break
+
+    # 갑구, 을구 섹션 파싱
+    current_section = None
+    gap_gu_texts = []
+    eul_gu_texts = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        if "갑구" in line or "갑 구" in line:
+            current_section = "갑구"
+            continue
+        elif "을구" in line or "을 구" in line:
+            current_section = "을구"
+            continue
+
+        if current_section == "갑구" and line and "순위번호" not in line and "등기목적" not in line:
+            gap_gu_texts.append(line)
+        elif current_section == "을구" and line and "순위번호" not in line and "등기목적" not in line:
+            eul_gu_texts.append(line)
+
+    result["갑구"] = gap_gu_texts if gap_gu_texts else ["데이터 없음"]
+    result["을구"] = eul_gu_texts if eul_gu_texts else ["데이터 없음"]
+
+    return result
 
 
 def extract_all_real_estate_info(file_path):
@@ -17,9 +169,45 @@ def extract_all_real_estate_info(file_path):
         },
         "발행일": None,
         "갑구": [],
-        "을구": []
+        "을구": [],
+        "법적상태": {
+            "가압류_여부": False,
+            "경매_여부": False,
+            "소송_여부": False,
+            "압류_여부": False
+        }
     }
 
+    # PDF 유형 확인
+    if is_image_based_pdf(file_path):
+        print("이미지 기반 PDF로 감지됨. OCR 처리를 시작합니다...")
+        all_text_content = extract_text_from_image_pdf(file_path)
+
+        if all_text_content.strip():
+            # OCR 텍스트 파싱
+            ocr_result = parse_ocr_text_for_registration(all_text_content)
+
+            # 결과 병합
+            for key in ["표제부", "발행일", "갑구", "을구"]:
+                if ocr_result[key]:
+                    result[key] = ocr_result[key]
+        else:
+            print("OCR에서 텍스트를 추출하지 못했습니다.")
+            all_text_content = ""
+    else:
+        print("텍스트 기반 PDF로 감지됨. 일반 추출을 진행합니다...")
+        # 기존 pdfplumber 기반 처리
+        result = extract_text_based_pdf(file_path, result)
+        all_text_content = extract_all_text_from_pdf(file_path)
+
+    # 법적 상태 확인
+    check_legal_status(all_text_content, result["법적상태"])
+
+    return result
+
+
+def extract_text_based_pdf(file_path, result):
+    """텍스트 기반 PDF 처리 (기존 로직)"""
     gap_gu_data, eul_gu_data = [], []
     gap_gu_raw_texts, eul_gu_raw_texts = [], []
     title_text_blocks = []
@@ -29,6 +217,7 @@ def extract_all_real_estate_info(file_path):
             page_text = page.extract_text()
             if page_text:
                 title_text_blocks.append(page_text)
+
                 if result["발행일"] is None:
                     match = re.search(r"발행일\s*(\d{4}/\d{2}/\d{2})", page_text)
                     if match:
@@ -137,6 +326,72 @@ def extract_all_real_estate_info(file_path):
     result["을구"] = eul_gu_data if eul_gu_data else eul_gu_raw_texts or ["데이터 없음"]
 
     return result
+
+
+def extract_all_text_from_pdf(file_path):
+    """PDF에서 모든 텍스트 추출"""
+    all_text = ""
+    with pdfplumber.open(file_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                all_text += page_text + "\n"
+    return all_text
+
+
+def check_legal_status(text_content, legal_status):
+    """전체 텍스트에서 법적 상태 관련 키워드 확인"""
+    logger = logging.getLogger(__name__)
+
+    # 가압류 관련 키워드
+    seizure_keywords = ["가압류", "가압류등기", "가압류신청", "가압류명령", "가압류결정"]
+    seizure_negative = ["가압류해제", "가압류취소", "가압류말소"]
+
+    # 경매 관련 키워드
+    auction_keywords = ["경매", "경매개시", "경매신청", "경매개시결정", "강제경매", "임의경매"]
+    auction_negative = ["경매취소", "경매말소"]
+
+    # 소송 관련 키워드
+    lawsuit_keywords = ["소송", "민사소송",
+                        "소유권이전등기청구", "소유권이전등기말소", "소유권확인", "손해배상"]
+    lawsuit_negative = ["소송취소", "소송말소"]
+
+    # 압류 관련 키워드
+    attachment_keywords = ["압류", "압류등기", "압류신청", "압류명령", "압류결정", "강제집행"]
+    attachment_negative = ["압류취소", "압류말소"]
+
+    # 키워드 검사
+    for keyword in seizure_keywords:
+        if keyword in text_content:
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in seizure_negative):
+                legal_status["가압류_여부"] = True
+                logger.info(f"가압류 키워드 발견: {keyword}")
+                break
+
+    for keyword in auction_keywords:
+        if keyword in text_content:
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in auction_negative):
+                legal_status["경매_여부"] = True
+                logger.info(f"경매 키워드 발견: {keyword}")
+                break
+
+    for keyword in lawsuit_keywords:
+        if keyword in text_content:
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in lawsuit_negative):
+                legal_status["소송_여부"] = True
+                logger.info(f"소송 키워드 발견: {keyword}")
+                break
+
+    for keyword in attachment_keywords:
+        if keyword in text_content:
+            # 부정 표현 확인
+            if not any(neg in text_content for neg in attachment_negative):
+                legal_status["압류_여부"] = True
+                logger.info(f"압류 키워드 발견: {keyword}")
+                break
 
 
 def extract_title_section_info(table_data, title_data):
