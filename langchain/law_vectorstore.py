@@ -1,0 +1,496 @@
+"""
+law_vectorstore.py - 부동산 법령 벡터스토어 관리 시스템
+1. 초기: 법령 PDF들을 학습하여 벡터스토어 생성
+2. 이후: 학습된 벡터스토어를 로드하여 검색 기능 제공
+3. 다른 AI 모델들의 기반 라이브러리 역할
+"""
+
+import os
+import json
+import pdfplumber
+import re
+from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
+
+# LangChain 관련 imports (최신 버전)
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_core.documents import Document
+
+# 환경변수 로드
+load_dotenv()
+
+
+class LawVectorStore:
+    """부동산 법령 학습 및 검색 시스템"""
+
+    def __init__(self, persist_directory: str = "vectorstore", collection_name: str = "rental_law"):
+        """
+        초기화
+
+        Args:
+            persist_directory: 벡터 DB 저장 경로
+            collection_name: 컬렉션 이름
+        """
+        self.persist_directory = persist_directory
+        self.collection_name = collection_name
+        self.embeddings_model = None
+        self.vectorstore = None
+
+        self._setup_embeddings()
+
+    def _setup_embeddings(self):
+        """임베딩 모델 설정"""
+        self.embeddings_model = HuggingFaceEmbeddings(
+            model_name='jhgan/ko-sroberta-nli',
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+
+    def extract_center_text_from_pdf(self, file_path: str) -> List[Document]:
+        """
+        PDF에서 중앙 텍스트를 추출하여 Document 객체로 변환
+
+        Args:
+            file_path: PDF 파일 경로
+
+        Returns:
+            Document 객체 리스트
+        """
+        documents = []
+
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                page_width = page.width
+                page_height = page.height
+
+                words = page.extract_words()
+                if not words:
+                    continue
+
+                # 여백 기준 정의
+                left = page_width * 0.05
+                right = page_width * 0.95
+                top_margin = 60
+                bottom_margin = page_height - 60
+
+                center_words = [
+                    word['text']
+                    for word in words
+                    if left <= word['x0'] <= right and top_margin <= word['top'] <= bottom_margin
+                ]
+
+                if center_words:
+                    joined_text = " ".join(center_words)
+
+                    # 조항 번호 추출
+                    article_match = re.search(
+                        r"(제\d+조(\의\d+)?(?:의\d+)?)(?=\s|\()", joined_text)
+                    article_title = article_match.group(
+                        1) if article_match else None
+
+                    documents.append(Document(
+                        page_content=joined_text,
+                        metadata={
+                            "source": f"{file_path} - Page {page.page_number + 1}",
+                            "file_path": file_path,
+                            "page_number": page.page_number + 1,
+                            "article": article_title,
+                            "law": self._extract_law_name(file_path)
+                        }
+                    ))
+        return documents
+
+    def _extract_law_name(self, file_path: str) -> str:
+        """파일명에서 법령명 추출 (확장자 제거)"""
+        filename = os.path.basename(file_path)
+        return filename.replace(".pdf", "")
+
+    def load_documents_from_directory(self, directory_path: str) -> List[Document]:
+        """
+        디렉토리 내 모든 PDF 파일에서 문서를 로드
+
+        Args:
+            directory_path: PDF 파일들이 있는 디렉토리 경로
+
+        Returns:
+            Document 객체 리스트
+        """
+        all_documents = []
+
+        if not os.path.exists(directory_path):
+            return all_documents
+
+        for filename in os.listdir(directory_path):
+            if filename.endswith('.pdf'):
+                file_path = os.path.join(directory_path, filename)
+                documents = self.extract_center_text_from_pdf(file_path)
+                all_documents.extend(documents)
+
+        return all_documents
+
+    def create_vectorstore(self, documents: List[Document], chunk_size: int = 1000, chunk_overlap: int = 50):
+        """
+        벡터 저장소 생성
+
+        Args:
+            documents: Document 객체 리스트
+            chunk_size: 청크 크기
+            chunk_overlap: 청크 겹침 크기
+        """
+        if not documents:
+            return
+
+        # 저장 디렉토리 생성
+        os.makedirs(self.persist_directory, exist_ok=True)
+
+        # 문서 분할
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap
+        )
+        split_documents = text_splitter.split_documents(documents)
+
+        # 벡터 저장소 생성
+        self.vectorstore = Chroma.from_documents(
+            documents=split_documents,
+            embedding=self.embeddings_model,
+            persist_directory=self.persist_directory,
+            collection_name=self.collection_name
+        )
+
+        # 처리 상태 기록
+        processed_states = {}
+        file_counts = {}
+        file_chunk_counts = {}
+
+        # 파일별 문서 수와 청크 수 계산
+        for doc in documents:
+            file_path = doc.metadata.get('file_path', '')
+            if file_path:
+                filename = os.path.basename(file_path)
+                file_counts[filename] = file_counts.get(filename, 0) + 1
+
+        for chunk in split_documents:
+            file_path = chunk.metadata.get('file_path', '')
+            if file_path:
+                filename = os.path.basename(file_path)
+                file_chunk_counts[filename] = file_chunk_counts.get(
+                    filename, 0) + 1
+
+        # 상태 저장
+        for filename, count in file_counts.items():
+            chunk_count = file_chunk_counts.get(filename, 0)
+            processed_states[filename] = {
+                "vectorstore_processed": True,
+                "document_count": count,
+                "chunk_count": chunk_count
+            }
+
+        self._save_processed_states(processed_states)
+
+    def load_existing_vectorstore(self) -> bool:
+        """
+        기존 벡터 저장소 로드
+
+        Returns:
+            로드 성공 여부
+        """
+        if os.path.exists(self.persist_directory):
+            try:
+                self.vectorstore = Chroma(
+                    embedding_function=self.embeddings_model,
+                    persist_directory=self.persist_directory,
+                    collection_name=self.collection_name
+                )
+                return True
+            except Exception as e:
+                return False
+        else:
+            return False
+
+    def search_relevant_law(self, query: str, k: int = 4) -> List[Dict[str, Any]]:
+        """
+        관련 법령 조항 검색
+
+        Args:
+            query: 검색 쿼리
+            k: 반환할 문서 수
+
+        Returns:
+            검색된 법령 정보 리스트
+        """
+        if not self.vectorstore:
+            raise ValueError("벡터 저장소가 로드되지 않았습니다.")
+
+        results = self.vectorstore.similarity_search(query, k=k)
+        return [
+            {
+                "content": result.page_content,
+                "metadata": result.metadata,
+                "law_name": result.metadata.get("law", ""),
+                "article": result.metadata.get("article", ""),
+                "page_number": result.metadata.get("page_number", "")
+            }
+            for result in results
+        ]
+
+    def search_by_article(self, article_number: str, k: int = 5) -> List[Dict[str, Any]]:
+        """
+        특정 조항 번호로 검색
+
+        Args:
+            article_number: 조항 번호 (예: "제6조", "제7조의2")
+            k: 반환할 문서 수
+
+        Returns:
+            해당 조항 정보
+        """
+        if not self.vectorstore:
+            raise ValueError("벡터 저장소가 로드되지 않았습니다.")
+
+        results = self.vectorstore.similarity_search(article_number, k=k)
+
+        # 조항 번호가 정확히 매칭되는 것들 우선 반환
+        exact_matches = [
+            result for result in results
+            if result.metadata.get("article") == article_number
+        ]
+
+        if exact_matches:
+            results = exact_matches
+
+        return [
+            {
+                "content": result.page_content,
+                "metadata": result.metadata,
+                "law_name": result.metadata.get("law", ""),
+                "article": result.metadata.get("article", ""),
+                "page_number": result.metadata.get("page_number", "")
+            }
+            for result in results
+        ]
+
+    def search_by_keywords(self, keywords: List[str], k: int = 4) -> List[Dict[str, Any]]:
+        """
+        키워드 리스트로 검색
+
+        Args:
+            keywords: 키워드 리스트
+            k: 반환할 문서 수
+
+        Returns:
+            검색된 법령 정보 리스트
+        """
+        query = " ".join(keywords)
+        return self.search_relevant_law(query, k)
+
+    def _get_processed_states_path(self) -> str:
+        """처리 상태 JSON 파일 경로 반환"""
+        return os.path.join(self.persist_directory, "processed_states.json")
+
+    def _load_processed_states(self) -> dict:
+        """처리 상태 JSON 파일 로드"""
+        states_path = self._get_processed_states_path()
+
+        if os.path.exists(states_path):
+            try:
+                with open(states_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                return {}
+        return {}
+
+    def _save_processed_states(self, states: dict):
+        """처리 상태 JSON 파일 저장"""
+        states_path = self._get_processed_states_path()
+
+        # 디렉토리가 없으면 생성
+        os.makedirs(os.path.dirname(states_path), exist_ok=True)
+
+        try:
+            with open(states_path, "w", encoding="utf-8") as f:
+                json.dump(states, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            pass
+
+    def add_new_documents(self, directory_path: str, chunk_size: int = 1000, chunk_overlap: int = 50):
+        """
+        새로 추가된 PDF 파일들만 벡터스토어에 추가
+
+        Args:
+            directory_path: PDF 파일들이 있는 디렉토리 경로
+            chunk_size: 청크 크기
+            chunk_overlap: 청크 겹침 크기
+        """
+        if not self.vectorstore:
+            return
+
+        if not os.path.exists(directory_path):
+            return
+
+        # 모든 PDF 파일 찾기
+        all_pdf_files = []
+        for filename in os.listdir(directory_path):
+            if filename.endswith('.pdf'):
+                all_pdf_files.append(filename)
+
+        if not all_pdf_files:
+            return
+
+        # 처리 상태 로드
+        processed_states = self._load_processed_states()
+
+        # 새로운 파일들 찾기
+        new_files = [
+            filename for filename in all_pdf_files
+            if filename not in processed_states or
+            not processed_states[filename].get("vectorstore_processed", False)
+        ]
+
+        if not new_files:
+            return
+
+        # 새 파일들 처리
+        for filename in new_files:
+            file_path = os.path.join(directory_path, filename)
+
+            try:
+                # PDF에서 문서 추출
+                documents = self.extract_center_text_from_pdf(file_path)
+
+                if documents:
+                    # 문서 분할
+                    text_splitter = RecursiveCharacterTextSplitter(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap
+                    )
+                    split_documents = text_splitter.split_documents(documents)
+
+                    # 벡터스토어에 추가
+                    self.vectorstore.add_documents(split_documents)
+
+                    # 처리 상태 업데이트
+                    if filename not in processed_states:
+                        processed_states[filename] = {}
+                    processed_states[filename]["vectorstore_processed"] = True
+                    processed_states[filename]["document_count"] = len(
+                        documents)
+                    processed_states[filename]["chunk_count"] = len(
+                        split_documents)
+
+                    # 상태 저장
+                    self._save_processed_states(processed_states)
+
+            except Exception as e:
+                pass
+
+    def get_retriever(self, search_kwargs: Optional[Dict[str, Any]] = None):
+        """
+        LangChain Retriever 객체 반환
+
+        Args:
+            search_kwargs: 검색 관련 추가 인자
+
+        Returns:
+            VectorStoreRetriever 객체
+        """
+        if not self.vectorstore:
+            raise ValueError("벡터 저장소가 로드되지 않았습니다.")
+
+        if search_kwargs is None:
+            search_kwargs = {"k": 4}
+
+        return self.vectorstore.as_retriever(search_kwargs=search_kwargs)
+
+
+# 전역 인스턴스 (싱글톤 패턴)
+_law_retriever = None
+
+
+def initialize_law_vectorstore(data_directory: str = "../data/law_docs",
+                               persist_directory: str = "../data/vectorstore",
+                               force_recreate: bool = False) -> Optional[LawVectorStore]:
+    """
+    법령 시스템 초기화
+
+    Args:
+        data_directory: PDF 파일들이 있는 디렉토리
+        persist_directory: 벡터 DB 저장 디렉토리
+        force_recreate: 기존 벡터스토어가 있어도 새로 생성할지 여부
+
+    Returns:
+        초기화된 LawVectorStore 인스턴스 또는 None
+    """
+    global _law_retriever
+
+    if _law_retriever is None:
+        _law_retriever = LawVectorStore(persist_directory=persist_directory)
+
+    # 기존 벡터스토어 확인
+    if not force_recreate and _law_retriever.load_existing_vectorstore():
+        return _law_retriever
+
+    # 새로 학습
+    documents = _law_retriever.load_documents_from_directory(data_directory)
+
+    if documents:
+        _law_retriever.create_vectorstore(documents)
+        return _law_retriever
+    else:
+        return None
+
+
+def get_law_vectorstore() -> Optional[LawVectorStore]:
+    """
+    법령 벡터스토어 반환
+
+    Returns:
+        LawVectorStore 인스턴스 또는 None
+    """
+    global _law_retriever
+
+    if _law_retriever is None:
+        return None
+
+    return _law_retriever
+
+
+# 간편 사용 함수들
+def search_law(query: str, k: int = 4) -> List[Dict[str, Any]]:
+    """간편 검색 함수"""
+    vectorstore = get_law_vectorstore()
+    if vectorstore:
+        return vectorstore.search_relevant_law(query, k)
+    return []
+
+
+def get_retriever(search_kwargs: Optional[Dict[str, Any]] = None):
+    """간편 Retriever 반환 함수"""
+    vectorstore = get_law_vectorstore()
+    if vectorstore:
+        return vectorstore.get_retriever(search_kwargs)
+    return None
+
+
+# 사용 예제
+if __name__ == "__main__":
+    print("=== 법령 벡터스토어 시스템 ===")
+
+    system = initialize_law_vectorstore(
+        data_directory="../data/law_docs",
+        persist_directory="../data/vectorstore",
+        force_recreate=False
+    )
+
+    if system:
+        # 검색 테스트
+        results = system.search_relevant_law("임대차 계약 해지", k=2)
+        for i, result in enumerate(results):
+            print(f"{i+1}. {result['article']} ({result['law_name']})")
+            print(f"내용: {result['content'][:100]}...")
+
+        print("\n✅ 벡터스토어 준비 완료")
+    else:
+        print("❌ 벡터스토어 초기화 실패")
