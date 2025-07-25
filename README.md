@@ -16,3 +16,9 @@
 🔧 config: npm 모듈 설치 등
 
 🌱 chore: (코드의 수정 없이) 설정 변경
+
+
+
+## 구성
+langchain/retriever.py 구성도
+<img width="502" height="227" alt="image" src="https://github.com/user-attachments/assets/0e8f015b-ec87-4f3e-805e-d6d2ebcd5472" />
