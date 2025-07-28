@@ -465,11 +465,11 @@ class RiskAnalysisModel:
             return RiskLevel.DANGER
         
         # 4순위: 주소 일치성 (행정안전부 API 기반 정확한 검증)
-        address_match = self.address_verifier.verify_three_addresses(
-            property_info.address, 
-            registry_data.region_address, 
-            building_data.site_location
-        )
+        # address_match = self.address_verifier.verify_three_addresses(
+        #     property_info.address, 
+        #     registry_data.region_address, 
+        #     building_data.site_location
+        # )
         
         
         if not address_match:

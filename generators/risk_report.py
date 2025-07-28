@@ -7,6 +7,7 @@ generators/risk_report.py - Spring 포맷 변환 및 데이터 파싱
 3. 데이터 파싱 및 검증
 """
 import sys
+import re
 import os
 import logging
 from typing import Dict, Any, Optional
@@ -385,7 +386,6 @@ class OCRDataParser:
                     return item["소유자명"]
                 elif isinstance(item, str) and "소유자" in item:
                     # 텍스트에서 소유자명 추출
-                    import re
                     match = re.search(r'소유자\s+([^\s]+)', item)
                     if match:
                         return match.group(1)
@@ -429,7 +429,6 @@ class OCRDataParser:
             return None
         
         try:
-            import re
             numbers = re.findall(r'[\d,]+', amount_str)
             if numbers:
                 return int(numbers[0].replace(',', ''))
@@ -452,7 +451,6 @@ class OCRDataParser:
         try:
             if isinstance(value, str):
                 # "지하1층/지상15층" 같은 형태에서 지상 층수 추출
-                import re
                 above_ground = re.search(r'지상(\d+)층', value)
                 if above_ground:
                     return int(above_ground.group(1))
@@ -483,7 +481,6 @@ class OCRDataParser:
             return None
         
         try:
-            import re
             
             # "2020.03.20" 형태
             if re.match(r'\d{4}\.\d{2}\.\d{2}', date_str):
@@ -582,7 +579,7 @@ if __name__ == "__main__":
             "소재지번_건물명칭": "서울특별시 광진구 군자동 98-38"
         },
         "법적상태": {
-            "가압류_여부": False,
+            "가압류_여부": True,
             "경매_여부": False,
             "소송_여부": False,
             "압류_여부": False
