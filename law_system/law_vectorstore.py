@@ -3,6 +3,7 @@ law_vectorstore.py - 부동산 법령 벡터스토어 관리 시스템
 1. 초기: 법령 PDF들을 학습하여 벡터스토어 생성
 2. 이후: 학습된 벡터스토어를 로드하여 검색 기능 제공
 3. 다른 AI 모델들의 기반 라이브러리 역할
+4. 임베딩 모델 캐싱으로 로딩 속도 대폭 개선
 """
 
 import os
@@ -14,13 +15,42 @@ from dotenv import load_dotenv
 
 # LangChain 관련 imports (최신 버전)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 # 환경변수 로드
 load_dotenv()
 
+# --- Path Setup ---
+try:
+    # 현재 파일의 디렉토리 (C:\LLM\law_system)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # 프로젝트 루트 디렉토리 (C:\LLM)
+    PROJECT_ROOT = os.path.dirname(current_dir)
+except NameError:
+    # 대화형 환경 등에서 __file__이 정의되지 않은 경우를 대비
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.getcwd(), ".."))
+
+# 기본 데이터 및 벡터스토어 경로를 절대 경로로 설정
+DEFAULT_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "law_docs")
+DEFAULT_PERSIST_DIR = os.path.join(PROJECT_ROOT, "data", "vectorstore")
+# --- End Path Setup ---
+
+_cached_embeddings = None
+
+def get_cached_embeddings():
+    """캐시된 임베딩 모델 반환 (최초 1회만 로딩)"""
+    global _cached_embeddings
+    
+    if _cached_embeddings is None:
+        _cached_embeddings = HuggingFaceEmbeddings(
+            model_name='jhgan/ko-sroberta-nli',
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+    
+    return _cached_embeddings
 
 class LawVectorStore:
     """부동산 법령 학습 및 검색 시스템"""
@@ -41,12 +71,8 @@ class LawVectorStore:
         self._setup_embeddings()
 
     def _setup_embeddings(self):
-        """임베딩 모델 설정"""
-        self.embeddings_model = HuggingFaceEmbeddings(
-            model_name='jhgan/ko-sroberta-nli',
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        """임베딩 모델 설정 (캐시된 버전 사용)"""
+        self.embeddings_model = get_cached_embeddings()
 
     def extract_center_text_from_pdf(self, file_path: str) -> List[Document]:
         """
@@ -59,7 +85,7 @@ class LawVectorStore:
             Document 객체 리스트
         """
         documents = []
-
+        
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
                 page_width = page.width
@@ -205,7 +231,7 @@ class LawVectorStore:
                     collection_name=self.collection_name
                 )
                 return True
-            except Exception as e:
+            except Exception:
                 return False
         else:
             return False
@@ -409,15 +435,15 @@ class LawVectorStore:
 _law_retriever = None
 
 
-def initialize_law_vectorstore(data_directory: str = "../data/law_docs",
-                               persist_directory: str = "../data/vectorstore",
+def initialize_law_vectorstore(data_directory: str = DEFAULT_DATA_DIR,
+                               persist_directory: str = DEFAULT_PERSIST_DIR,
                                force_recreate: bool = False) -> Optional[LawVectorStore]:
     """
     법령 시스템 초기화
 
     Args:
-        data_directory: PDF 파일들이 있는 디렉토리
-        persist_directory: 벡터 DB 저장 디렉토리
+        data_directory: PDF 파일들이 있는 디렉토리 (기본값: 절대 경로)
+        persist_directory: 벡터 DB 저장 디렉토리 (기본값: 절대 경로)
         force_recreate: 기존 벡터스토어가 있어도 새로 생성할지 여부
 
     Returns:
@@ -425,11 +451,14 @@ def initialize_law_vectorstore(data_directory: str = "../data/law_docs",
     """
     global _law_retriever
 
+    # LawVectorStore 인스턴스 생성 시 절대 경로 사용
     if _law_retriever is None:
         _law_retriever = LawVectorStore(persist_directory=persist_directory)
 
     # 기존 벡터스토어 확인
     if not force_recreate and _law_retriever.load_existing_vectorstore():
+        # 추가: 이미 로드된 경우에도 새 문서가 있는지 확인하고 추가
+        _law_retriever.add_new_documents(data_directory)
         return _law_retriever
 
     # 새로 학습
@@ -439,6 +468,9 @@ def initialize_law_vectorstore(data_directory: str = "../data/law_docs",
         _law_retriever.create_vectorstore(documents)
         return _law_retriever
     else:
+        # 벡터스토어를 새로 생성하지 못했더라도, 기존 것이 있는지 다시 한번 확인
+        if _law_retriever.load_existing_vectorstore():
+            return _law_retriever
         return None
 
 
@@ -452,7 +484,8 @@ def get_law_vectorstore() -> Optional[LawVectorStore]:
     global _law_retriever
 
     if _law_retriever is None:
-        return None
+        # 초기화 함수 호출 시 인자 없이 호출하여 기본 절대 경로 사용
+        initialize_law_vectorstore()
 
     return _law_retriever
 
@@ -478,11 +511,9 @@ def get_retriever(search_kwargs: Optional[Dict[str, Any]] = None):
 if __name__ == "__main__":
     print("=== 법령 벡터스토어 시스템 ===")
 
-    system = initialize_law_vectorstore(
-        data_directory="../data/law_docs",
-        persist_directory="../data/vectorstore",
-        force_recreate=False
-    )
+    # 이제 data_directory와 persist_directory를 명시적으로 전달할 필요가 없습니다.
+    # 함수에 설정된 기본 절대 경로를 사용합니다.
+    system = initialize_law_vectorstore(force_recreate=False)
 
     if system:
         # 검색 테스트
@@ -491,6 +522,6 @@ if __name__ == "__main__":
             print(f"{i+1}. {result['article']} ({result['law_name']})")
             print(f"내용: {result['content'][:100]}...")
 
-        print("\n✅ 벡터스토어 준비 완료")
+        print(f"\n✅ 벡터스토어 준비 완료 (경로: {system.persist_directory})")
     else:
-        print("❌ 벡터스토어 초기화 실패")
+        print(f"❌ 벡터스토어 초기화 실패 (경로 확인: {DEFAULT_PERSIST_DIR})")
