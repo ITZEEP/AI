@@ -13,8 +13,8 @@ import os
 import logging
 import re
 import requests
-from typing import Dict, List, Any, Optional
-from datetime import datetime, date
+from typing import Dict, List, Optional
+from datetime import date
 from dataclasses import dataclass
 from enum import Enum
 from dotenv import load_dotenv
@@ -153,7 +153,7 @@ class JusoApiAddressVerifier:
         Returns:
             bool: 주소 일치 여부
         """
-        logger.info(f"주소 검증 시작:")
+        logger.info("주소 검증 시작:")
         logger.info(f"  매물: {property_addr}")
         logger.info(f"  등기: {registry_addr}")  
         logger.info(f"  건축: {building_addr}")

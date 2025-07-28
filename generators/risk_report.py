@@ -9,8 +9,8 @@ generators/risk_report.py - Spring 포맷 변환 및 데이터 파싱
 import sys
 import os
 import logging
-from typing import Dict, List, Any, Optional
-from datetime import datetime, date
+from typing import Dict, Any, Optional
+from datetime import datetime
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 

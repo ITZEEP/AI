@@ -6,11 +6,13 @@ import sys
 import os
 import json
 import warnings
-from typing import List, Dict, Any, Optional
+import logging
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from dotenv import load_dotenv
+logger = logging.getLogger(__name__)
 
 # deprecation warning 무시
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -34,10 +36,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 # law_system import
 try:
     from law_system.law_vectorstore import get_law_vectorstore, search_law
-    print("✅ law_system 모듈 import 성공")
+    logger.info("✅ law_system 모듈 import 성공")
     LAW_SYSTEM_AVAILABLE = True
 except ImportError as e:
-    print(f"❌ law_system import 실패: {e}")
+    logger.error(f"❌ law_system import 실패: {e}")
     LAW_SYSTEM_AVAILABLE = False
 
 load_dotenv()
@@ -286,7 +288,7 @@ class ContractClauseAI:
         info_clause = None
         
         if existing_clauses:
-            existing_context = f"\n# 기존 계약서의 특약들:\n"
+            existing_context = "\n# 기존 계약서의 특약들:\n"
             for i, clause in enumerate(existing_clauses, 1):
                 existing_context += f"{i}. {clause}\n"
                 
@@ -306,7 +308,7 @@ class ContractClauseAI:
             law_results = search_law(query, k=5)
             
             if law_results:
-                law_context = f"\n# 관련 법령:\n"
+                law_context = "\n# 관련 법령:\n"
                 for result in law_results:
                     law_name = result.get('law_name', '')
                     article = result.get('article', '')
