@@ -1,6 +1,35 @@
-google-cloud-vision
-python-dotenv
-opencv-python
-PyMuPDF
-numpy<2
-pdfplumber
+# FastAPI and server
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# OCR and PDF processing
+google-cloud-vision>=3.4.5
+python-dotenv>=1.0.0
+opencv-python>=4.8.1.78
+PyMuPDF==1.24.14
+numpy>=1.26.0
+pdfplumber>=0.10.3
+
+# AI dependencies
+google-generativeai>=0.4.1
+
+# API dependencies  
+requests>=2.31.0
+
+# LangChain components
+langchain>=0.1.16
+langchain-core>=0.1.52  
+langchain-community>=0.0.38
+langchain-google-genai>=0.0.11
+langchain-text-splitters>=0.0.1
+langchain-huggingface>=0.0.3
+langchain-chroma>=0.1.0
+
+# Vector storage
+chromadb>=0.4.18
+
+# HuggingFace embeddings (CPU only)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+sentence-transformers>=2.2.2
