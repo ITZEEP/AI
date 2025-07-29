@@ -83,7 +83,7 @@ class ContractInfo:
 class ContractLegalChecker:
     """계약서 법령 적법성 검토 AI 시스템"""
     
-    def __init__(self, model_name: str = "gemini-1.5-flash", temperature: float = 0.1):
+    def __init__(self, model_name: str = "gemini-2.5-pro", temperature: float = 0.07):
         """
         Args:
             model_name: 사용할 LLM 모델명
@@ -185,15 +185,38 @@ class ContractLegalChecker:
         contract_parts.append(f"매물 ID: {contract_info.home_id}")
         
         # 2. 계약 기간
-        period_days = (contract_info.contract_expire_date - contract_info.contract_date).days
-        contract_parts.append(f"계약기간: {contract_info.contract_date.strftime('%Y년 %m월 %d일')} ~ {contract_info.contract_expire_date.strftime('%Y년 %m월 %d일')} (총 {period_days}일)")
+        period_days = (contract_info.contract_expire_date - contract_info.contract_date).days + 1
+        period_years = period_days / 365
+        contract_parts.append(f"계약기간: {contract_info.contract_date.strftime('%Y년 %m월 %d일')} ~ {contract_info.contract_expire_date.strftime('%Y년 %m월 %d일')} (총 {period_days}일, 약 {period_years:.1f}년)")
         
-        # 3. 금액 정보
-        contract_parts.append("=== 금액 정보 ===")
-        if contract_info.deposit_price:
+        # 3. 🔥 임대차 유형 및 금액 정보 (전세/월세 명확히 구분)
+        contract_parts.append("=== 임대차 유형 및 금액 정보 ===")
+        
+        # 전세/월세 판단 로직
+        if contract_info.monthly_rent and contract_info.monthly_rent > 0:
+            # 월세 계약
+            contract_parts.append("🏠 임대차 유형: 월세 계약")
             contract_parts.append(f"보증금: {contract_info.deposit_price:,}원")
-        if contract_info.monthly_rent:
             contract_parts.append(f"월세: {contract_info.monthly_rent:,}원")
+            
+            # 월세의 경우 보증금 비율 계산
+            if contract_info.deposit_price and contract_info.monthly_rent:
+                monthly_to_deposit_ratio = (contract_info.monthly_rent * 12) / contract_info.deposit_price * 100
+                contract_parts.append(f"연간 월세/보증금 비율: {monthly_to_deposit_ratio:.1f}%")
+                
+        else:
+            # 전세 계약  
+            contract_parts.append("🏠 임대차 유형: 전세 계약")
+            contract_parts.append(f"전세보증금: {contract_info.deposit_price:,}원")
+            
+            # 전세금 수준 분석 (소액임차인 기준 등)
+            if contract_info.deposit_price:
+                if contract_info.deposit_price <= 165000000:  # 1억 6천 5백만원 이하
+                    contract_parts.append("💡 소액임차인 보호 대상 (더 안전한 보호 받음)")
+                else:
+                    contract_parts.append("💡 고액 전세 (임대인 재정상태 더 중요)")
+        
+        # 관리비
         if contract_info.maintenance_fee:
             contract_parts.append(f"관리비: {contract_info.maintenance_fee:,}원")
         
@@ -206,15 +229,40 @@ class ContractLegalChecker:
         return "\n".join(contract_parts)
     
     def _analyze_full_contract_with_llm(self, full_contract_text: str, contract_info: ContractInfo) -> List[LegalViolation]:
-        """LLM으로 전체 계약서 종합 분석"""
+        """LLM으로 전체 계약서 종합 분석 - 개선된 프롬프트"""
+        
+        # 전세/월세 여부 판단
+        is_jeonse = not (contract_info.monthly_rent and contract_info.monthly_rent > 0)
         
         # 관련 법령 검색 (전체 계약서 내용 기반)
-        relevant_laws = self._search_relevant_laws_for_full_contract(full_contract_text)
+        relevant_laws = self._search_relevant_laws_for_full_contract(full_contract_text, is_jeonse)
         laws_context = self._format_laws_context(relevant_laws)
         
-        # 전체 계약서 분석 프롬프트
+            # 🔥 전세/월세 특성을 반영한 프롬프트
+        contract_type_guidance = ""
+        
+        if is_jeonse:
+                contract_type_guidance = """
+        ## 🏠 전세 계약 특별 검토사항:
+        - 전세보증금 반환 관련 조항의 적정성
+        - 임대인의 재정 상태나 근저당권 설정 현황 고려 필요성
+        - 전세금 대비 과도한 관리비나 기타 비용 부과 여부
+        - 전세 계약임에도 월세 성격의 비용 부과 조항 검토
+        - 전세보증금 반환보증보험 가입 관련 조항
+        """
+        else:
+                contract_type_guidance = """
+        ## 🏠 월세 계약 특별 검토사항:
+        - 월세 연체시 조치 절차의 적정성
+        - 월세 인상률의 법정 한도 준수 여부
+        - 보증금과 월세 비율의 합리성
+        - 관리비 별도 부과의 적정성
+        - 월세 선납 조건의 합리성
+        """
+        
+        # 🔥 개선된 전체 계약서 분석 프롬프트
         prompt = PromptTemplate.from_template("""
-당신은 부동산 임대차 법률 전문가입니다. 다음 **전체 계약서**를 종합적으로 검토해주세요.
+    당신은 부동산 임대차 법률 전문가입니다. 다음 **전체 계약서**를 종합적으로 검토해주세요.
 
 ## 전체 계약서:
 {full_contract}
@@ -222,62 +270,78 @@ class ContractLegalChecker:
 ## 관련 법령 정보:
 {laws_context}
 
-## 검토 범위:
-1. 계약기간이 법령에 적합한지 (2년 미만 계약의 경우)
-2. 보증금이 소액임차인 보호 범위 내인지
-3. 월세/관리비가 합리적인지
-4. 특약사항들이 법령에 위반되거나 불공정한지
-5. 전체적으로 임차인에게 과도하게 불리한 계약인지
+{contract_type_guidance}
 
-위반사항이 발견될 때마다 다음 형식으로 각각 따로 출력해주세요:
+## ⚠️ 중요한 검토 원칙:
+1. **실제로 법령에 위반되거나 명백히 불공정한 조항만** 지적해주세요
+2. 일반적이고 표준적인 조항은 문제로 지적하지 마세요
+3. **당신의 법률 전문 지식**을 바탕으로 각 조항이 관련 법령에 위반되는지 판단해주세요
+4. **절차적 정당성**과 **실체적 공정성**을 모두 고려해주세요
+5. **계약 해지나 퇴거 관련 조항**에서는 적정한 절차와 기간이 보장되는지도 확인해주세요
+6. **극단적인 표현**이 포함된 해지/퇴거 조항은 반드시 확인해주세요
+7. **전세/월세 계약의 특성**에 맞는 법령 적용 여부를 확인해주세요
+
+## 검토 범위:
+**임대차 계약 전반에 걸쳐 법령 위반이나 불공정한 내용이 있는지 종합적으로 검토**해주세요.
+
+**실제 문제가 발견된 경우에만** 다음 형식으로 출력해주세요:
 
 ---위반사항---
-위반유형: [위반/주의/적법]
-위반법령: [구체적인 법령명]
+위반법령: [구체적인 법령명 (조항 번호 제외)]
 위반내용: [문제점을 1줄로 간단히]
-내용설명: [왜 문제인지 1-2문장으로]
-법적근거: [조항 번호]
-개선방안: [수정 방법을 1문장으로]
+내용설명: [왜 문제인지 1-2줄로]
+법적근거: [정확한 조항 번호]
+개선방안: [실제 계약서에 바로 넣을 수 있는 수정된 조항 내용]
 해당조항: [문제가 되는 원본 내용]
 ---위반사항 끝---
 
-## 주의사항:
-- 실제로 법령 위반이나 불공정한 내용만 지적해주세요
-- 일반적이고 표준적인 조항은 문제로 지적하지 마세요
-- 문제가 없다면 "문제없음"이라고 답변해주세요
-        """)
+## ✅ 문제가 없는 경우:
+"검토 결과 법령에 위반되는 조항이 발견되지 않았습니다."라고 답변해주세요.
+
+## 📝 개선방안 작성 가이드:
+- "~~한다" 형식의 완전한 조항으로 작성
+- 기존 조항을 법령에 맞게 수정한 완성형 문장
+- 바로 계약서에 복사해서 넣을 수 있는 형태
+- 예시: "임차인은 계약 해지 시 통상적인 사용으로 인한 마모는 원상복구 의무에서 제외되며, 고의 또는 중과실로 인한 손상에 대해서만 원상복구 의무를 진다."
+            """)
         
         chain = prompt | self.llm | StrOutputParser()
-        
+    
         try:
             result = chain.invoke({
                 "full_contract": full_contract_text,
-                "laws_context": laws_context
+                "laws_context": laws_context,
+                "contract_type_guidance": contract_type_guidance
             })
             
-            return self._parse_full_contract_analysis(result)
+            return self._parse_full_contract_analysis_improved(result)
             
         except Exception as e:
             logger.error(f"❌ 전체 계약서 LLM 분석 실패: {e}")
             return []
     
-    def _search_relevant_laws_for_full_contract(self, full_contract_text: str) -> List[Dict[str, Any]]:
+    def _search_relevant_laws_for_full_contract(self, full_contract_text: str, is_jeonse: bool = True) -> List[Dict[str, Any]]:
         """전체 계약서 기반 관련 법령 검색"""
         if not LAW_SYSTEM_AVAILABLE:
             return []
         
         try:
-            # 계약서에서 핵심 키워드 추출
-            keywords = []
+            # 기본 키워드
+            keywords = ["주택임대차보호법", "임대차계약"]
             
-            if "보증금" in full_contract_text:
-                keywords.extend(["보증금", "소액임차인", "대항력"])
-            if "월세" in full_contract_text:
-                keywords.extend(["월세", "차임증액"])
-            if "계약기간" in full_contract_text:
-                keywords.extend(["계약기간", "존속기간", "갱신"])
+            # 전세/월세에 따른 특화 키워드
+            if is_jeonse:
+                keywords.extend([
+                    "전세", "전세보증금", "보증금반환", "소액임차인", 
+                    "우선변제권", "대항력", "전세권", "보증보험"
+                ])
+            else:
+                keywords.extend([
+                    "월세", "차임", "차임증액", "연체", "월세인상", 
+                    "보증금", "관리비"
+                ])
             
-            # 특약 관련 키워드도 추가
+            # 계약서 내용 기반 추가 키워드
             if "원상복구" in full_contract_text:
                 keywords.append("원상복구")
             if "해지" in full_contract_text:
@@ -285,11 +349,8 @@ class ContractLegalChecker:
             if "전대" in full_contract_text or "양도" in full_contract_text:
                 keywords.extend(["전대", "양도"])
             
-            # 기본 키워드 추가
-            keywords.extend(["주택임대차보호법", "임대차계약"])
-            
-            search_query = " ".join(list(set(keywords))[:10])  # 중복 제거 후 최대 10개
-            logger.info(f"🔍 전체 계약서 법령 검색: {search_query}")
+            search_query = " ".join(list(set(keywords))[:10])
+            logger.info(f"🔍 {'전세' if is_jeonse else '월세'} 계약 법령 검색: {search_query}")
             
             return search_law(search_query, k=10)
             
@@ -297,16 +358,19 @@ class ContractLegalChecker:
             logger.error(f"❌ 전체 계약서 법령 검색 실패: {e}")
             return []
     
-    def _parse_full_contract_analysis(self, llm_result: str) -> List[LegalViolation]:
-        """전체 계약서 LLM 분석 결과 파싱"""
+    def _parse_full_contract_analysis_improved(self, llm_result: str) -> List[LegalViolation]:
+        """개선된 전체 계약서 LLM 분석 결과 파싱"""
         try:
             logger.info(f"🔍 전체 계약서 분석 결과 파싱 시작")
             
             violations = []
             
-            # "문제없음"인 경우 빈 리스트 반환
-            if "문제없음" in llm_result or "문제가 없" in llm_result:
-                logger.info("✅ LLM 판단: 계약서에 문제없음")
+            # "문제없음" 또는 "위반되는 조항이 발견되지 않았습니다" 체크
+            if ("문제없음" in llm_result or 
+                "위반되는 조항이 발견되지 않았습니다" in llm_result or
+                "문제가 없" in llm_result or
+                "위반되지 않았습니다" in llm_result):
+                logger.info("✅ LLM 판단: 계약서에 법령 위반사항 없음")
                 return []
             
             # "---위반사항---"으로 구분된 각 위반사항 파싱
@@ -315,19 +379,19 @@ class ContractLegalChecker:
             for block in violation_blocks:
                 if "---위반사항 끝---" in block:
                     violation_content = block.split("---위반사항 끝---")[0].strip()
-                    violation = self._parse_single_violation_block(violation_content)
+                    violation = self._parse_single_violation_block_improved(violation_content)
                     if violation:
                         violations.append(violation)
             
-            logger.info(f"✅ 파싱 완료: {len(violations)}건의 위반사항 발견")
+            logger.info(f"✅ 파싱 완료: {len(violations)}건의 실제 위반사항 발견")
             return violations
             
         except Exception as e:
             logger.error(f"❌ 전체 계약서 분석 결과 파싱 실패: {e}")
             return []
     
-    def _parse_single_violation_block(self, violation_content: str) -> Optional[LegalViolation]:
-        """개별 위반사항 블록 파싱"""
+    def _parse_single_violation_block_improved(self, violation_content: str) -> Optional[LegalViolation]:
+        """개선된 개별 위반사항 블록 파싱"""
         try:
             result_data = {}
             
@@ -338,43 +402,38 @@ class ContractLegalChecker:
                     key = key.strip()
                     value = value.strip()
                     
-                    if key == "위반유형":
-                        if "위반" in value:
-                            result_data['violation_type'] = ViolationType.ILLEGAL
-                        elif "주의" in value:
-                            result_data['violation_type'] = ViolationType.CAUTION
-                        else:
-                            result_data['violation_type'] = ViolationType.LEGAL
-                    elif key == "위반법령":
-                        result_data['law_name'] = value if value != "관련 법령" else "주택임대차보호법"
+                    if key == "위반법령":
+                        result_data['law_name'] = value
                     elif key == "위반내용":
                         result_data['violation_content'] = value
                     elif key == "내용설명":
                         result_data['explanation'] = value
                     elif key == "법적근거":
-                        result_data['legal_basis'] = value if value != "관련 조항" else "해당 법령 조항"
+                        result_data['legal_basis'] = value
                     elif key == "개선방안":
                         result_data['improvement_example'] = value
                     elif key == "해당조항":
                         result_data['original_clause'] = value
             
-            # 적법한 경우 None 반환
-            if result_data.get('violation_type') == ViolationType.LEGAL:
+            # 필수 정보가 없으면 None 반환
+            if not result_data.get('law_name') or not result_data.get('improvement_example'):
+                logger.warning("⚠️ 필수 정보 누락으로 위반사항 제외")
                 return None
             
             return LegalViolation(
-                violation_type=result_data.get('violation_type', ViolationType.CAUTION),
+                violation_type=ViolationType.ILLEGAL,  # 실제 위반사항만 파싱하므로 모두 ILLEGAL
                 law_name=result_data.get('law_name', '주택임대차보호법'),
-                violation_content=result_data.get('violation_content', '검토 필요'),
-                explanation=result_data.get('explanation', '상세 검토가 필요합니다.'),
-                legal_basis=result_data.get('legal_basis', '해당 법령 조항'),
-                improvement_example=result_data.get('improvement_example', '전문가 상담 권장'),
-                original_clause=result_data.get('original_clause', '해당 없음')
+                violation_content=result_data.get('violation_content', '법령 위반'),
+                explanation=result_data.get('explanation', '해당 조항이 법령에 위반됩니다.'),
+                legal_basis=result_data.get('legal_basis', '관련 법령 조항'),
+                improvement_example=result_data.get('improvement_example', '전문가 상담 필요'),
+                original_clause=result_data.get('original_clause', '해당 조항')
             )
             
         except Exception as e:
             logger.error(f"❌ 개별 위반사항 파싱 실패: {e}")
             return None
+
     
     def _search_relevant_laws(self, clause: str) -> List[Dict[str, Any]]:
         """조항과 관련된 법령 검색"""
@@ -405,166 +464,6 @@ class ContractLegalChecker:
         
         found_keywords = [keyword for keyword in legal_keywords if keyword in clause]
         return found_keywords
-    
-    # def _analyze_with_retrieval_qa(self, clause: str) -> Optional[LegalViolation]:
-    #     """RetrievalQA를 사용한 법령 검토 - 개선된 버전"""
-        
-    #     try:
-    #         query = f"""
-    #         다음 임대차 계약서 특약 조항이 주택임대차보호법이나 기타 관련 법령에 위반되는지 검토해주세요:
-            
-    #         특약 조항: {clause}
-            
-    #         다음 형식으로 정확히 답변해주세요:
-    #         위반유형: [위반/주의/적법]
-    #         위반법령: [구체적인 법령명]
-    #         위반내용: [어떤 부분이 문제인지]
-    #         내용설명: [왜 문제가 되는지 상세 설명]
-    #         법적근거: [구체적인 조항 예: 제6조 제1항]
-    #         개선방안: [수정 방법 제시]
-    #         """
-            
-    #         result = self.retrieval_qa.invoke({"query": query})  # __call__ → invoke로 변경
-            
-    #         if result and "result" in result:
-    #             return self._parse_qa_result_improved(result["result"], clause)
-            
-    #         return None
-            
-    #     except Exception as e:
-    #         logger.error(f"❌ RetrievalQA 분석 실패: {e}")
-    #         return None
-    
-    # def _parse_qa_result_improved(self, qa_result: str, original_clause: str) -> Optional[LegalViolation]:
-    #     """개선된 RetrievalQA 결과 파싱"""
-    #     try:
-    #         logger.info(f"🔍 QA 결과 파싱: {qa_result[:100]}...")
-            
-    #         result_data = {}
-            
-    #         # 줄별로 분석하여 정보 추출
-    #         for line in qa_result.split('\n'):
-    #             line = line.strip()
-    #             if ':' in line:
-    #                 key, value = line.split(':', 1)
-    #                 key = key.strip()
-    #                 value = value.strip()
-                    
-    #                 if key == "위반유형":
-    #                     if "위반" in value:
-    #                         result_data['violation_type'] = ViolationType.ILLEGAL
-    #                     elif "주의" in value:
-    #                         result_data['violation_type'] = ViolationType.CAUTION
-    #                     else:
-    #                         result_data['violation_type'] = ViolationType.LEGAL
-    #                 elif key == "위반법령":
-    #                     result_data['law_name'] = value
-    #                 elif key == "위반내용":
-    #                     result_data['violation_content'] = value
-    #                 elif key == "내용설명":
-    #                     result_data['explanation'] = value
-    #                 elif key == "법적근거":
-    #                     result_data['legal_basis'] = value
-    #                 elif key == "개선방안":
-    #                     result_data['improvement_example'] = value
-            
-    #         # 형식이 맞지 않으면 직접 LLM 분석으로 대체
-    #         if not result_data.get('law_name') or result_data.get('law_name') == '관련 법령':
-    #             logger.warning("⚠️ QA 결과 형식 불일치, LLM 직접 분석으로 전환")
-    #             return None  # LLM 직접 분석으로 넘어감
-            
-    #         # 적법한 경우 None 반환
-    #         if result_data.get('violation_type') == ViolationType.LEGAL:
-    #             return None
-            
-    #         return LegalViolation(
-    #             violation_type=result_data.get('violation_type', ViolationType.CAUTION),
-    #             law_name=result_data.get('law_name', '관련 법령'),
-    #             violation_content=result_data.get('violation_content', '검토 필요'),
-    #             explanation=result_data.get('explanation', '상세 검토가 필요합니다.'),
-    #             legal_basis=result_data.get('legal_basis', '관련 조항'),
-    #             improvement_example=result_data.get('improvement_example', '전문가 상담 권장'),
-    #             original_clause=original_clause
-    #         )
-            
-    #     except Exception as e:
-    #         logger.error(f"❌ QA 결과 파싱 실패: {e}")
-    #         return None
-    
-#     def _analyze_clause_with_llm(self, clause: str, relevant_laws: List[Dict[str, Any]]) -> Optional[LegalViolation]:
-#         """직접 LLM을 사용한 조항 적법성 분석"""
-        
-#         # 관련 법령 정보 포맷팅
-#         laws_context = self._format_laws_context(relevant_laws)
-        
-#         prompt = PromptTemplate.from_template("""
-# 당신은 부동산 임대차 법률 전문가입니다. 다음 계약서 특약 조항을 검토해주세요.
-
-# ## 검토할 특약 조항:
-# {clause}
-
-# ## 관련 법령 정보:
-# {laws_context}
-
-# 당신의 전문적 판단으로 이 조항이 법령에 위반되거나 불공정한지 스스로 결정해주세요.
-# 일반적이고 표준적인 조항이라면 "적법"으로, 실제로 문제가 있다고 판단되면 "위반" 또는 "주의"로 분류해주세요.
-
-# ## 출력 형식:
-# 위반유형: [위반/주의/적법]
-# 위반법령: [구체적인 법령명]
-# 위반내용: [문제점을 1줄로 간단히]
-# 내용설명: [왜 문제인지 1-2문장으로]
-# 법적근거: [조항 번호]
-# 개선방안: [수정 방법을 1문장으로]
-#         """)
-        
-#         chain = prompt | self.llm | StrOutputParser()
-        
-#         try:
-#             result = chain.invoke({
-#                 "clause": clause,
-#                 "laws_context": laws_context
-#             })
-            
-#             return self._parse_llm_result(result, clause)
-            
-#         except Exception as e:
-#             logger.error(f"❌ LLM 분석 실패: {e}")
-#             return None
-    
-    # def _check_contract_conditions(self, contract_info: ContractInfo) -> List[LegalViolation]:
-    #     """계약 기본 조건들의 법령 적합성 검토 - 순수 LLM 방식"""
-    #     violations = []
-        
-    #     try:
-    #         # 계약 조건들을 하나의 텍스트로 구성
-    #         contract_conditions = []
-            
-    #         if contract_info.deposit_price:
-    #             contract_conditions.append(f"보증금: {contract_info.deposit_price:,}원")
-                
-    #         if contract_info.monthly_rent:
-    #             contract_conditions.append(f"월세: {contract_info.monthly_rent:,}원")
-                
-    #         if contract_info.maintenance_fee:
-    #             contract_conditions.append(f"관리비: {contract_info.maintenance_fee:,}원")
-            
-    #         # 계약기간 정보
-    #         period_days = (contract_info.contract_expire_date - contract_info.contract_date).days
-    #         contract_conditions.append(f"계약기간: {contract_info.contract_date.strftime('%Y년 %m월 %d일')} ~ {contract_info.contract_expire_date.strftime('%Y년 %m월 %d일')} (총 {period_days}일)")
-            
-    #         # 모든 조건을 하나의 조항으로 취급하여 LLM으로 검토
-    #         if contract_conditions:
-    #             combined_conditions = " / ".join(contract_conditions)
-    #             violation = self._check_clause_legality(combined_conditions)
-    #             if violation and violation.violation_type != ViolationType.LEGAL:
-    #                 violations.append(violation)
-                    
-    #     except Exception as e:
-    #         logger.error(f"❌ 계약 조건 검토 실패: {e}")
-        
-    #     return violations
-    
 
     
     def _format_laws_context(self, laws: List[Dict[str, Any]]) -> str:
@@ -582,9 +481,6 @@ class ContractLegalChecker:
         
         return "\n".join(formatted)
     
-    # def _parse_qa_result(self, qa_result: str, original_clause: str) -> Optional[LegalViolation]:
-    #     """기존 QA 결과 파싱 - 사용 안함"""
-    #     return None  # 항상 None 반환하여 LLM 직접 분석으로 넘어가게 함
     
     def _parse_llm_result(self, llm_result: str, original_clause: str) -> Optional[LegalViolation]:
         """개선된 LLM 분석 결과 파싱"""
@@ -702,55 +598,134 @@ def check_contract_legality_for_spring(contract_id: int,
     return checker.check_contract_legality(contract_info)
 
 
-# 테스트용
-if __name__ == "__main__":
-    print("\n=== 계약서 법령 검토 시스템 테스트 ===")
+
     
-    # 시스템 상태 확인
-    checker = get_contract_legal_checker()
-    status = checker.get_system_status()
-    print(f"🔧 시스템 상태:")
-    print(f"   LLM: {status['llm_status']}")
-    print(f"   벡터스토어: {status['vectorstore_status']}")
-    print(f"   RetrievalQA: {status['retrieval_qa_status']}")
+import time
+from datetime import datetime
+
+def test_improved_contract_checker():
+    """개선된 계약서 검토 시스템 테스트 - 시간 측정 포함"""
     
-    # 테스트 특약들 - LLM이 스스로 판단하도록
-    test_clauses = [
+    # ⏰ 시작 시간 기록
+    start_time = time.time()
+    start_datetime = datetime.now()
+    
+    print(f"\n=== 개선된 계약서 법령 검토 시스템 테스트 ===")
+    print(f"🕐 테스트 시작 시각: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 60)
+    
+    # 🚨 실제 문제가 있는 특약들로 테스트
+    problematic_clauses = [
         "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
-        "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.", 
-        "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",
-        "임차인은 전대 및 양도를 할 수 없다."
+            "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.",
+            "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",  # 명백한 위반
+            "임차인은 전대 및 양도를 할 수 없다."
     ]
     
-    # 테스트 계약 정보
-    contract_info = ContractInfo(
+    # ✅ 문제없는 일반 조항들도 포함
+    normal_clauses = [
+        "임차인은 임대차 목적물을 선량한 관리자의 주의로 사용해야 한다.",  # 일반적 조항
+        "월세는 매월 말일까지 지급한다.",  # 표준 조항
+        "계약기간은 2년으로 한다."  # 법정 기간
+    ]
+    
+    # 🏗️ 테스트 계약 정보 생성
+    setup_start = time.time()
+    test_contract_info = ContractInfo(
         contract_id=1,
         home_id=1,
         owner_id=1,
         buyer_id=2,
         contract_date=datetime(2024, 1, 1),
-        contract_expire_date=datetime(2025, 12, 31),
-        deposit_price=150000000,  # 1.5억원
-        monthly_rent=500000,
-        maintenance_fee=100000,
-        special_clauses=test_clauses
+        contract_expire_date=datetime(2025, 12, 31),  # 2년 계약
+        deposit_price=300000000,  # 3억원
+        monthly_rent=0,  # 전세
+        maintenance_fee=150000,
+        special_clauses=problematic_clauses + normal_clauses  # 문제 조항 + 일반 조항
     )
+    setup_time = time.time() - setup_start
+    print(f"📋 계약 정보 생성 시간: {setup_time:.2f}초")
     
-    # 법령 검토 실행
-    violations = checker.check_contract_legality(contract_info)
+    # 🤖 LLM 초기화 시간 측정
+    print("🔧 AI 모델 초기화 중...")
+    init_start = time.time()
+    checker = get_contract_legal_checker()
+    init_time = time.time() - init_start
+    print(f"🤖 AI 모델 초기화 시간: {init_time:.2f}초")
     
+    # 📊 실제 검토 시간 측정
+    print("🔍 계약서 법령 검토 시작...")
+    analysis_start = time.time()
+    violations = checker.check_contract_legality(test_contract_info)
+    analysis_time = time.time() - analysis_start
+    print(f"⚖️ 법령 검토 분석 시간: {analysis_time:.2f}초")
+    
+    # 📈 결과 출력
+    result_start = time.time()
     if violations:
-        print(f"\n⚠️ 총 {len(violations)}건의 문제점 발견:")
+        print(f"\n⚠️ 총 {len(violations)}건의 실제 법령 위반사항 발견:")
+        
+        # 🎯 "즉시 퇴거" 조항 검출 확인
+        instant_eviction_found = False
+        
         for i, violation in enumerate(violations, 1):
-            print(f"\n--- {i}번째 문제점 ---")
-            print(f"위반유형: {violation.violation_type}")
+            print(f"\n--- {i}번째 위반사항 ---")
             print(f"위반법령: {violation.law_name}")
             print(f"위반내용: {violation.violation_content}")
             print(f"내용설명: {violation.explanation}")
             print(f"법적근거: {violation.legal_basis}")
-            print(f"개선방안: {violation.improvement_example}")
+            print(f"🔧 개선방안: {violation.improvement_example}")
             print(f"원본조항: {violation.original_clause}")
+            
+            # "즉시 퇴거" 검출 확인
+            if "즉시" in violation.original_clause and "퇴거" in violation.original_clause:
+                instant_eviction_found = True
+                print("🎯 *** 즉시 퇴거 조항 검출 성공! ***")
+        
+        print(f"\n📊 검출 결과 분석:")
+        print(f"   - 총 위반사항: {len(violations)}건")
+        print(f"   - 즉시 퇴거 조항: {'✅ 검출됨' if instant_eviction_found else '❌ 미검출'}")
+        
     else:
-        print("\n✅ 검토 결과 법령 위반 사항이 발견되지 않았습니다.")
+        print("\n✅ 검토 결과 법령에 위반되는 조항이 발견되지 않았습니다.")
+        print("⚠️ 주의: 명백한 위반 조항들이 있는데 검출되지 않았습니다.")
     
-    print("\n🎉 테스트 완료!")
+    result_time = time.time() - result_start
+    print(f"📄 결과 출력 시간: {result_time:.2f}초")
+    
+    # ⏰ 총 실행 시간 계산
+    total_time = time.time() - start_time
+    end_datetime = datetime.now()
+    
+    print("\n" + "=" * 60)
+    print("⏱️ 시간 측정 결과:")
+    print("=" * 60)
+    print(f"🕐 시작 시각: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🕕 종료 시각: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"⏱️ 총 실행 시간: {total_time:.2f}초 ({total_time/60:.1f}분)")
+    print()
+    print("📊 세부 시간 분석:")
+    print(f"   📋 계약 정보 생성: {setup_time:.2f}초 ({setup_time/total_time*100:.1f}%)")
+    print(f"   🤖 AI 모델 초기화: {init_time:.2f}초 ({init_time/total_time*100:.1f}%)")
+    print(f"   ⚖️ 법령 검토 분석: {analysis_time:.2f}초 ({analysis_time/total_time*100:.1f}%)")
+    print(f"   📄 결과 출력: {result_time:.2f}초 ({result_time/total_time*100:.1f}%)")
+    print()
+    
+    # 💡 성능 평가
+    if total_time < 30:
+        performance = "🚀 매우 빠름"
+    elif total_time < 60:
+        performance = "⚡ 빠름"
+    elif total_time < 120:
+        performance = "🐌 보통"
+    else:
+        performance = "🐢 느림"
+    
+    print(f"🎯 성능 평가: {performance}")
+    print(f"💡 분석 속도: 특약 {len(problematic_clauses + normal_clauses)}개를 {analysis_time:.1f}초에 처리")
+
+
+if __name__ == "__main__":
+    # 기존 테스트
+    test_improved_contract_checker()
+    
