@@ -42,9 +42,10 @@ load_dotenv()
 try:
     from law_system.law_vectorstore import get_law_vectorstore, search_law
     LAW_SYSTEM_AVAILABLE = True
+    print("INFO: law_vectorstore 연결 성공")
 except ImportError:
     LAW_SYSTEM_AVAILABLE = False
-    print("⚠️ law_vectorstore를 사용할 수 없습니다.")
+    print("WARNING: law_vectorstore를 사용할 수 없습니다.")
 
 logger = logging.getLogger(__name__)
 
@@ -77,15 +78,23 @@ class PropertyInfo:
 
 
 @dataclass
+class MortgageeInfo:
+    """근저당권 정보"""
+    priority_number: int          # 순위번호
+    debtor: str                               # 채무자 (필수)
+    max_claim_amount: Optional[int] = None    # 채권최고액
+    mortgagee: Optional[str] = None           # 근저당권자
+
+
+@dataclass
 class RegistryData:
     """등기부등본 데이터 (Spring에서 사용자 검증 완료된 데이터)"""
     region_address: str                   # 소재지번
     road_address: str                     # 도로명주소
     owner_name: str                       # 소유자명
     owner_birth_date: Optional[date] = None
-    max_claim_amount: Optional[int] = None    # 채권최고액
-    debtor: Optional[str] = None
-    mortgagee: Optional[str] = None           # 근저당권자
+    debtor: Optional[str] = None              # 채무자 (첫 번째 근저당권의 채무자)
+    mortgagee_list: Optional[List[MortgageeInfo]] = None  # 근저당권 목록
     has_seizure: bool = False                 # 가압류 여부
     has_auction: bool = False                 # 경매 여부
     has_litigation: bool = False              # 소송 여부
@@ -195,10 +204,10 @@ class JusoApiAddressVerifier:
             unique_addresses = list(set(base_addresses))
             
             if len(unique_addresses) == 1:
-                logger.info(f"✅ 주소 검증 성공: 모든 주소가 같은 위치 ({unique_addresses[0]})")
+                logger.info(f"OK 주소 검증 성공: 모든 주소가 같은 위치 ({unique_addresses[0]})")
                 return True
             else:
-                logger.warning(f"❌ 주소 불일치: {len(unique_addresses)}개 서로 다른 위치")
+                logger.warning(f"ERROR 주소 불일치: {len(unique_addresses)}개 서로 다른 위치")
                 logger.warning(f"   주소들: {unique_addresses}")
                 return False
                 
@@ -338,7 +347,7 @@ class RiskAnalysisModel:
         self.temperature = temperature
         self.llm = self._setup_llm()
         self.vectorstore = self._setup_vectorstore()
-        self.address_verifier = JusoApiAddressVerifier()  # ✅ 독립적인 주소 검증기
+        self.address_verifier = JusoApiAddressVerifier()  # OK 독립적인 주소 검증기
         
     def _setup_llm(self):
         """Gemini 1.5 Flash LLM 설정"""
@@ -354,10 +363,9 @@ class RiskAnalysisModel:
             raise
         
     def _setup_vectorstore(self):
-        """법령 벡터스토어 설정"""
+        """법령 벡터스토어 설정 - 무조건 로딩"""
         if not LAW_SYSTEM_AVAILABLE:
-            logger.warning("Warning: law_vectorstore is not available.")
-            return None
+            raise RuntimeError("law_vectorstore is required but not available!")
         
         try:
             vectorstore = get_law_vectorstore()
@@ -365,11 +373,10 @@ class RiskAnalysisModel:
                 logger.info("Success: Vectorstore connected.")
                 return vectorstore
             else:
-                logger.warning("Error: Vectorstore is None.")
-                return None
+                raise RuntimeError("Vectorstore is None - initialization failed!")
         except Exception as e:
             logger.error(f"Error: Vectorstore connection failed: {e}")
-            return None
+            raise
     
     def analyze_risk(self, 
                     user_info: UserInfo,
@@ -391,7 +398,7 @@ class RiskAnalysisModel:
         try:
             logger.info(f"위험도 분석 시작 - user_id: {user_info.user_id}, home_id: {property_info.home_id}")
             
-            # ✅ 1. 주소 검증 먼저 수행 (LLM 프롬프트에서도 사용하기 위함)
+            # OK 1. 주소 검증 먼저 수행 (LLM 프롬프트에서도 사용하기 위함)
             address_match = self.address_verifier.verify_three_addresses(
                 property_info.address,
                 registry_data.region_address,
@@ -486,11 +493,20 @@ class RiskAnalysisModel:
         return current_risk
     
     def _calculate_mortgage_risk_ratio(self, registry_data: RegistryData, property_info: PropertyInfo) -> float:
-        """근저당권 위험 비율 정확한 계산"""
-        if not registry_data.max_claim_amount or not property_info.deposit_price:
+        """근저당권 위험 비율 정확한 계산 (모든 근저당권 합산)"""
+        if not registry_data.mortgagee_list or not property_info.deposit_price:
             return 0.0
         
-        return (registry_data.max_claim_amount / property_info.deposit_price) * 100
+        # 모든 근저당권의 채권최고액 합산
+        total_max_claim_amount = sum(
+            m.max_claim_amount for m in registry_data.mortgagee_list 
+            if m.max_claim_amount is not None
+        )
+        
+        if total_max_claim_amount == 0:
+            return 0.0
+            
+        return (total_max_claim_amount / property_info.deposit_price) * 100
     
     def _search_relevant_laws(self, registry_data: RegistryData, building_data: BuildingData) -> List[Dict]:
         """상황별 맞춤 법령 검색"""
@@ -501,7 +517,7 @@ class RiskAnalysisModel:
             keywords = []
             
             # 위험 상황별 키워드 추가
-            if registry_data.max_claim_amount:
+            if registry_data.mortgagee_list and len(registry_data.mortgagee_list) > 0:
                 keywords.extend(["근저당권", "채권최고액", "우선변제권"])
             
             if any([registry_data.has_seizure, registry_data.has_auction, 
@@ -677,10 +693,25 @@ class RiskAnalysisModel:
     
     def _format_registry_data(self, data: RegistryData) -> str:
         """등기부등본 데이터 포맷팅"""
+        # 근저당권 정보 포맷팅
+        mortgage_info = ""
+        if data.mortgagee_list and len(data.mortgagee_list) > 0:
+            mortgage_lines = []
+            total_amount = 0
+            for m in data.mortgagee_list:
+                amount_str = f'{m.max_claim_amount:,}원' if m.max_claim_amount else '미상'
+                if m.max_claim_amount:
+                    total_amount += m.max_claim_amount
+                mortgage_lines.append(f"  - {m.priority_number}순위: {m.mortgagee} (채권최고액: {amount_str}, 채무자: {m.debtor})")
+            mortgage_info = "\n".join(mortgage_lines)
+            mortgage_info = f"근저당권 설정:\n{mortgage_info}\n  총 채권최고액: {total_amount:,}원"
+        else:
+            mortgage_info = "근저당권: 설정없음"
+            
         return f"""
 소재지번: {data.region_address}
 소유자: {data.owner_name}
-근저당액: {f'{data.max_claim_amount:,}원' if data.max_claim_amount else '설정없음'}
+{mortgage_info}
 권리제한: 가압류({data.has_seizure}), 경매({data.has_auction}), 소송({data.has_litigation}), 압류({data.has_attachment})
 """
     
@@ -760,7 +791,15 @@ if __name__ == "__main__":
         region_address="서울특별시 광진구 군자동 98-38",  # 지번주소
         road_address="서울특별시 광진구 능동로 195-16",     # 도로명주소
         owner_name="홍길동",  # 일치
-        max_claim_amount=200000000,  # 25% 비율 (안전)
+        debtor="홍길동",  # 채무자
+        mortgagee_list=[
+            MortgageeInfo(
+                priority_number=1,
+                debtor="홍길동",
+                max_claim_amount=200000000,  # 25% 비율 (안전)
+                mortgagee="KB국민은행"
+            )
+        ],
         has_seizure=False
     )
     
@@ -794,9 +833,9 @@ if __name__ == "__main__":
             print(f"내용: {result.detail_analysis.rights_info_content}")
             
         except Exception as e:
-            print(f"❌ 분석 실행 실패: {e}")
+            print(f"ERROR 분석 실행 실패: {e}")
     else:
-        print("❌ API 키가 설정되지 않아 분석을 실행할 수 없습니다.")
+        print("ERROR API 키가 설정되지 않아 분석을 실행할 수 없습니다.")
         
         # 주소 검증기만 테스트
         if juso_api_key:

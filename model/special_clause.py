@@ -36,10 +36,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 # law_system import
 try:
     from law_system.law_vectorstore import get_law_vectorstore, search_law
-    logger.info("✅ law_system 모듈 import 성공")
+    logger.info("OK: law_system module imported successfully")
     LAW_SYSTEM_AVAILABLE = True
 except ImportError as e:
-    logger.error(f"❌ law_system import 실패: {e}")
+    logger.error(f"ERROR: law_system import failed: {e}")
     LAW_SYSTEM_AVAILABLE = False
 
 load_dotenv()
@@ -85,32 +85,28 @@ class ContractClauseAI:
                 model=self.model_name,
                 temperature=self.temperature
             )
-            print("✅ Gemini LLM 초기화 성공")
+            print("OK: Gemini LLM initialized successfully")
             return llm
         except Exception as e:
-            print(f"❌ LLM 초기화 실패: {e}")
+            print(f"ERROR: LLM initialization failed: {e}")
             raise
         
     def _setup_vectorstore(self):
-        """벡터스토어 설정"""
+        """벡터스토어 설정 - 무조건 로딩"""
         if not LAW_SYSTEM_AVAILABLE:
-            print("⚠️ law_system을 사용할 수 없습니다.")
-            return None
+            raise RuntimeError("law_system is required but not available!")
         
         try:
             vectorstore = get_law_vectorstore()
             if vectorstore:
-                print("✅ 벡터스토어 연결 성공")
-                # 간단한 테스트
-                test_results = search_law("임대차 계약", k=2)
-                print(f"🧪 법령 검색 테스트: {len(test_results)}개 결과")
+                print("OK: Vectorstore connected successfully")
+                # 테스트는 생략하여 초기화 속도 개선
                 return vectorstore
             else:
-                print("❌ 벡터스토어가 None입니다")
-                return None
+                raise RuntimeError("Vectorstore is None - initialization failed!")
         except Exception as e:
-            print(f"❌ 벡터스토어 연결 실패: {e}")
-            return None
+            print(f"ERROR: Vectorstore connection failed: {e}")
+            raise
     
     # ==================== 1. 초기 특약 추천 ====================
     def recommend_initial_clauses(self, room_id: str, 
@@ -166,11 +162,11 @@ class ContractClauseAI:
             
             # Spring 반환 형식으로 변환
             result = self._format_spring_response(room_id, assessed_clauses)
-            print(f"✅ 초기 특약 추천 완료: {len(assessed_clauses)}개")
+            print(f"OK 초기 특약 추천 완료: {len(assessed_clauses)}개")
             return result
             
         except Exception as e:
-            print(f"❌ 특약 추천 중 오류: {e}")
+            print(f"ERROR 특약 추천 중 오류: {e}")
             import traceback
             traceback.print_exc()
             return {"success": False, "error": str(e)}
@@ -186,13 +182,13 @@ class ContractClauseAI:
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             special_terms = data.get("special_terms", [])
-            print(f"✅ 계약서 특약 {len(special_terms)}개 로드: {contract_file_name}")
+            print(f"OK 계약서 특약 {len(special_terms)}개 로드: {contract_file_name}")
             return special_terms
         except FileNotFoundError:
-            print(f"❌ 계약서 파일 없음: {json_path}")
+            print(f"ERROR 계약서 파일 없음: {json_path}")
             return []
         except Exception as e:
-            print(f"❌ JSON 읽기 오류: {e}")
+            print(f"ERROR JSON 읽기 오류: {e}")
             return []
 
     def _generate_initial_clauses(self, room_id: str,
@@ -322,7 +318,7 @@ class ContractClauseAI:
                 return "\n# 관련 법령을 찾을 수 없습니다.\n"
                 
         except Exception as e:
-            print(f"⚠️ 법령 검색 실패: {e}")
+            print(f"WARNING 법령 검색 실패: {e}")
             return "\n# 법령 검색 중 오류가 발생했습니다.\n"
 
     def _parse_clauses(self, llm_output: str) -> List[Dict[str, Any]]:
@@ -366,7 +362,7 @@ class ContractClauseAI:
         
         # 정확히 6개 체크
         if len(clauses) != 6:
-            print(f"⚠️ 특약 개수 오류: {len(clauses)}개 (예상: 6개)")
+            print(f"WARNING 특약 개수 오류: {len(clauses)}개 (예상: 6개)")
         
         return clauses[:6]
 
@@ -501,11 +497,11 @@ class ContractClauseAI:
                 "timestamp": datetime.now().isoformat()
             }
             
-            print(f"✅ 특약 개선 완료: {clause_number}번")
+            print(f"OK 특약 개선 완료: {clause_number}번")
             return result
             
         except Exception as e:
-            print(f"❌ 특약 개선 중 오류: {e}")
+            print(f"ERROR 특약 개선 중 오류: {e}")
             return {"success": False, "error": str(e)}
 
     def _generate_improved_clause(self, room_id: str, conversation: str, 
@@ -623,11 +619,11 @@ class ContractClauseAI:
                 "timestamp": datetime.now().isoformat()
             }
             
-            print(f"✅ Room {room_id} 세션 종료 완료")
+            print(f"OK Room {room_id} 세션 종료 완료")
             return result
             
         except Exception as e:
-            print(f"❌ 세션 종료 중 오류: {e}")
+            print(f"ERROR 세션 종료 중 오류: {e}")
             return {"success": False, "error": str(e)}
 
     def _get_termination_message(self, reason: str) -> str:
@@ -754,7 +750,7 @@ def test_clause_system():
     )
     
     if initial_result["success"]:
-        print(f"✅ 초기 특약 {initial_result['total_count']}개 추천 완료")
+        print(f"OK 초기 특약 {initial_result['total_count']}개 추천 완료")
         
         # 특약 미리보기
         for clause in initial_result["clauses"][:3]:
@@ -762,7 +758,7 @@ def test_clause_system():
             print(f"   🏠 임대인: {clause['landlord_assessment']['safety_level']}")
             print(f"   🏡 임차인: {clause['tenant_assessment']['safety_level']}")
     else:
-        print(f"❌ 실패: {initial_result.get('error', 'Unknown error')}")
+        print(f"ERROR 실패: {initial_result.get('error', 'Unknown error')}")
         return
     
     # 2. 대화 기반 개선 테스트 (1라운드)
@@ -787,11 +783,11 @@ def test_clause_system():
     
     if improve_result_1["success"]:
         improved_1 = improve_result_1["improved_clause"]
-        print(f"✅ 1라운드 완료: {improved_1['title']}")
+        print(f"OK 1라운드 완료: {improved_1['title']}")
         print(f"   🏠 임대인: {improved_1['landlord_assessment']['safety_level']}")
         print(f"   🏡 임차인: {improved_1['tenant_assessment']['safety_level']}")
     else:
-        print(f"❌ 1라운드 실패: {improve_result_1.get('error')}")
+        print(f"ERROR 1라운드 실패: {improve_result_1.get('error')}")
         return
     
     # 3. 대화 기반 개선 테스트 (2라운드)
@@ -811,11 +807,11 @@ def test_clause_system():
     
     if improve_result_2["success"]:
         improved_2 = improve_result_2["improved_clause"]
-        print(f"✅ 2라운드 완료: {improved_2['title']}")
+        print(f"OK 2라운드 완료: {improved_2['title']}")
         print(f"   🏠 임대인: {improved_2['landlord_assessment']['safety_level']}")
         print(f"   🏡 임차인: {improved_2['tenant_assessment']['safety_level']}")
     else:
-        print(f"❌ 2라운드 실패: {improve_result_2.get('error')}")
+        print(f"ERROR 2라운드 실패: {improve_result_2.get('error')}")
         return
     
     # 4. 세션 종료 테스트
@@ -824,26 +820,26 @@ def test_clause_system():
     finalize_result = finalize_room_session_spring(room_id, "max_rounds")
     
     if finalize_result["success"]:
-        print(f"✅ 세션 종료 완료")
+        print(f"OK 세션 종료 완료")
         print(f"   종료 사유: {finalize_result['termination_reason']}")
         print(f"   최종 특약 수: {finalize_result['final_clause_count']}개")
         print(f"   메시지: {finalize_result['message']}")
     else:
-        print(f"❌ 세션 종료 실패: {finalize_result.get('error')}")
+        print(f"ERROR 세션 종료 실패: {finalize_result.get('error')}")
     
     # 5. 시스템 상태 재확인
     final_status = get_system_status_spring()
     print(f"\n📊 최종 시스템 상태:")
     print(f"   활성 방: {final_status['active_rooms']}개 (정리됨)")
     
-    print("\n🎉 테스트 완료!")
-    print("\n💡 테스트 결과 요약:")
-    print(f"   ✅ 초기 추천: 성공")
-    print(f"   ✅ 1라운드 개선: 성공") 
-    print(f"   ✅ 2라운드 개선: 성공")
-    print(f"   ✅ 세션 종료: 성공")
-    print(f"   ✅ 중복 방지: 적용됨")
-    print(f"   ✅ 전체 컨텍스트: 활용됨")
+    print("\nSUCCESS 테스트 완료!")
+    print("\nINFO 테스트 결과 요약:")
+    print(f"   OK 초기 추천: 성공")
+    print(f"   OK 1라운드 개선: 성공") 
+    print(f"   OK 2라운드 개선: 성공")
+    print(f"   OK 세션 종료: 성공")
+    print(f"   OK 중복 방지: 적용됨")
+    print(f"   OK 전체 컨텍스트: 활용됨")
     
 
 if __name__ == "__main__":

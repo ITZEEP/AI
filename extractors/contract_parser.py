@@ -12,7 +12,11 @@ from google.cloud import vision
 from dotenv import load_dotenv
 from datetime import datetime
 
-# ✅ 환경 변수 및 Vision API 클라이언트 설정
+# 프로젝트 루트를 Python 경로에 추가
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config.path_resolver import get_google_credentials_path
+
+# OK 환경 변수 및 Vision API 클라이언트 설정
 _vision_client = None
 
 
@@ -20,10 +24,15 @@ def get_vision_client():
     global _vision_client
     if _vision_client is None:
         load_dotenv()
-        json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if not json_path or not os.path.exists(json_path):
-            raise RuntimeError(
-                "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
+        
+        # 상대 경로를 절대 경로로 변환
+        try:
+            json_path = get_google_credentials_path()
+            # 환경 변수를 절대 경로로 업데이트
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = json_path
+        except (ValueError, FileNotFoundError) as e:
+            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}")
+        
         _vision_client = vision.ImageAnnotatorClient()
     return _vision_client
 
@@ -82,7 +91,7 @@ def parse_special_terms_to_list(text: str) -> List[str]:
     return [item for item in items if item and item.strip()]
 
 
-# ✅ 텍스트 기반 PDF 특약사항 추출
+# OK 텍스트 기반 PDF 특약사항 추출
 def extract_special_terms_text_pdf(pdf_path: str) -> str:
     buffer = []
     extracting = False
@@ -105,7 +114,7 @@ def extract_special_terms_text_pdf(pdf_path: str) -> str:
                     buffer.append(clean_line)
     return '\n'.join(buffer).strip()
 
-# ✅ 이미지 기반 PDF 특약사항 추출
+# OK 이미지 기반 PDF 특약사항 추출
 
 
 def pixmap_to_bgr(pix):
@@ -234,7 +243,7 @@ def save_json(output_dict, output_path):
         json.dump(output_dict, f, ensure_ascii=False, indent=2)
 
 
-# ✅ 실행 예시
+# OK 실행 예시
 if __name__ == "__main__":
     import argparse
 

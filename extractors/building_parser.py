@@ -11,6 +11,10 @@ import argparse
 from dotenv import load_dotenv
 from typing import Dict, List, Optional
 
+# 프로젝트 루트를 Python 경로에 추가
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config.path_resolver import get_google_credentials_path
+
 
 class BuildingInfoExtractor:
     """건축물대장 정보 추출 클래스 - 텍스트 기반 및 이미지 기반 PDF 모두 처리"""
@@ -18,10 +22,15 @@ class BuildingInfoExtractor:
     def __init__(self):
         """환경 변수 및 Google Vision API 클라이언트 초기화"""
         load_dotenv()
-        json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if not json_path or not os.path.exists(json_path):
-            raise RuntimeError(
-                "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
+        
+        # 상대 경로를 절대 경로로 변환
+        try:
+            json_path = get_google_credentials_path()
+            # 환경 변수를 절대 경로로 업데이트
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = json_path
+        except (ValueError, FileNotFoundError) as e:
+            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}")
+        
         # 클라이언트를 None으로 초기화하고 필요할 때 생성
         self._vision_client = None
 
@@ -41,6 +50,37 @@ class BuildingInfoExtractor:
         elif pix.n == 3:
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         return img
+
+    def is_building_document(self, doc) -> bool:
+        """PDF가 건축물대장인지 확인하는 함수"""
+        try:
+            # 처음 3페이지만 확인
+            for page_num in range(min(3, len(doc))):
+                page = doc[page_num]
+                
+                # 텍스트 기반 PDF인 경우
+                text = page.get_text()
+                if text and "건축물대장" in text:
+                    return True
+                
+                # 이미지 기반 PDF인 경우 OCR 수행
+                pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))  # 낮은 해상도로 빠르게 확인
+                img = self.pixmap_to_bgr(pix)
+                
+                try:
+                    words = self.ocr_google_vision(img)
+                    # OCR 결과에서 "건축물대장" 찾기
+                    for word in words:
+                        if "건축물대장" in word[4]:
+                            return True
+                except:
+                    # OCR 실패시 텍스트만으로 판단
+                    continue
+                    
+            return False
+        except Exception as e:
+            print(f"문서 유형 확인 중 오류: {e}")
+            return False
 
     def ocr_google_vision(self, image_np: np.ndarray) -> List[tuple]:
         """Google Vision API를 사용한 OCR - 단어별 위치 정보와 함께 반환"""
@@ -100,6 +140,10 @@ class BuildingInfoExtractor:
                                         output_dir: str = "../data/output/building_json") -> Optional[Dict]:
         """건축물대장 PDF에서 정보를 추출하는 함수"""
         with fitz.open(pdf_path) as doc:
+            # 먼저 문서가 건축물대장인지 확인
+            if not self.is_building_document(doc):
+                raise ValueError("건축물대장 PDF 파일이 아닙니다.")
+            
             if self.is_text_based_pdf(pdf_path):
                 print("텍스트 기반 PDF 처리 중...")
                 result = self.extract_text_based_pdf(doc, last_word)
@@ -127,7 +171,7 @@ class BuildingInfoExtractor:
                 last = word
 
         if not first or not last:
-            print("❌ 크롭 영역을 설정할 수 없습니다.")
+            print("ERROR 크롭 영역을 설정할 수 없습니다.")
             return None
 
         # 박스 좌표 계산
@@ -196,7 +240,7 @@ class BuildingInfoExtractor:
             print(f"끝 단어 발견: {last[4]}")
 
         if not first or not last:
-            print("❌ 크롭 영역을 설정할 수 없습니다.")
+            print("ERROR 크롭 영역을 설정할 수 없습니다.")
             return None
 
         # 크롭 영역 처리
@@ -993,7 +1037,7 @@ class BuildingInfoExtractor:
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(json_result, f, ensure_ascii=False, indent=2)
 
-        print(f"✅ 결과 저장됨: {json_path}")
+        print(f"OK 결과 저장됨: {json_path}")
 
 
 def main():
@@ -1010,7 +1054,7 @@ def main():
     args = parser.parse_args()
 
     if not os.path.exists(args.pdf_path):
-        print(f"❌ 오류: 파일을 찾을 수 없습니다 - {args.pdf_path}")
+        print(f"ERROR 오류: 파일을 찾을 수 없습니다 - {args.pdf_path}")
         sys.exit(1)
 
     try:
@@ -1031,14 +1075,14 @@ def main():
         )
 
         if result:
-            print("✅ 건축물대장 분석 완료")
+            print("OK 건축물대장 분석 완료")
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
-            print("❌ 분석 중 오류가 발생했습니다.")
+            print("ERROR 분석 중 오류가 발생했습니다.")
             sys.exit(1)
 
     except Exception as e:
-        print(f"❌ 오류 발생: {str(e)}")
+        print(f"ERROR 오류 발생: {str(e)}")
         sys.exit(1)
 
 
