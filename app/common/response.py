@@ -27,7 +27,8 @@ class ApiResponse(BaseModel):
     class Config:
         populate_by_name = True
         json_encoders = {
-            datetime: lambda v: v.isoformat()
+            # Java LocalDateTime 형식: yyyy-MM-dd'T'HH:mm:ss
+            datetime: lambda v: v.strftime('%Y-%m-%dT%H:%M:%S')
         }
 
 

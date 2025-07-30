@@ -1,5 +1,5 @@
 # Multi-stage build for smaller image size
-FROM python:3.11-slim-bullseye AS base
+FROM python:3.12-slim AS base
 
 # Set working directory
 WORKDIR /app
@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     gcc \
     g++ \
+    # SQLite3 (for ChromaDB)
+    sqlite3 \
+    libsqlite3-dev \
     # OpenCV dependencies
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -53,6 +56,9 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV PORT=8000
 ENV HOST=0.0.0.0
+# ChromaDB SQLite check bypass (for older SQLite versions)
+ENV CHROMA_SERVER_NOFILE=1
+ENV ALLOW_RESET=TRUE
 
 # Expose port
 EXPOSE 8000

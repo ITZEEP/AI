@@ -28,6 +28,8 @@ langchain-chroma>=0.1.0
 
 # Vector storage
 chromadb>=0.4.18
+# SQLite for ChromaDB (Python 3.11 compatibility)
+pysqlite3-binary>=0.5.0
 
 # HuggingFace embeddings (CPU only)
 --extra-index-url https://download.pytorch.org/whl/cpu

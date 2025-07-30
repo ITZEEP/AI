@@ -23,14 +23,8 @@ from config.logger_config import get_logger
 from app.common.response import ApiResponse
 from app.parsers.dto_converter import DtoConverter
 
-# AI 모델은 필요할 때만 import (lazy loading)
-try:
-    from generators.risk_report import RiskReportGenerator
-    AI_AVAILABLE = True
-except Exception as e:
-    AI_AVAILABLE = False
-    print(f"Warning: AI models not available - {e}")
-    RiskReportGenerator = None
+# AI 모델 필수 import
+from generators.risk_report import RiskReportGenerator
 
 # 로거 설정
 logger = get_logger(__name__)
@@ -72,17 +66,22 @@ app.add_middleware(
 # 건축물대장 파서 인스턴스 생성
 building_extractor = BuildingInfoExtractor()
 
-# 위험도 분석기 인스턴스 생성 (선택적)
+# 위험도 분석기 인스턴스 생성 (필수)
 risk_report_generator = None
-if not os.getenv("DISABLE_AI_MODELS", "").lower() == "true":
-    try:
-        risk_report_generator = RiskReportGenerator()
-        logger.info("Risk analysis model loaded successfully")
-    except Exception as e:
-        logger.error(f"Failed to load risk analysis model: {e}")
-        logger.info("Server will start without risk analysis functionality")
-else:
-    logger.info("AI models disabled by environment variable")
+try:
+    # 환경 변수 확인
+    if not os.getenv("GOOGLE_API_KEY"):
+        raise ValueError("GOOGLE_API_KEY is not set in environment variables")
+    if not os.getenv("JUSO_API_KEY"):
+        logger.warning("JUSO_API_KEY is not set - address verification will use fallback method")
+    
+    risk_report_generator = RiskReportGenerator()
+    logger.info("Risk analysis model loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load risk analysis model: {e}")
+    logger.error("Please check your environment variables and dependencies")
+    # AI 모델은 필수이므로 서버 시작을 중단
+    raise RuntimeError(f"Cannot start server without AI models: {e}")
 
 
 # Request Models
@@ -398,22 +397,14 @@ async def parse_contract(file: UploadFile = File(..., description="임대차계�
 async def analyze_risk(request: RiskAnalysisRequest):
     """위험도 분석 API"""
     try:
-        # AI 모델이 로드되지 않은 경우 에러 반환
-        if not AI_AVAILABLE or RiskReportGenerator is None:
-            return ApiResponse.error(
-                message="AI 위험도 분석 기능이 비활성화되어 있습니다. 서버 관리자에게 문의하세요.",
-                code="AI_NOT_AVAILABLE"
-            )
-        
         logger.info(f"위험도 분석 시작: user_id={request.user_id}, home_id={request.home_id}")
         
         # DTO 변환
         registry_dto = request.registry_document.model_dump(by_alias=True)
         building_dto = request.building_document.model_dump(by_alias=True)
         
-        # 위험도 분석 수행
-        risk_generator = RiskReportGenerator()
-        result = risk_generator.generate_spring_risk_report(
+        # 위험도 분석 수행 (전역 인스턴스 사용)
+        result = risk_report_generator.generate_spring_risk_report(
             user_id=request.user_id,
             user_type=request.user_type,
             home_id=request.home_id,

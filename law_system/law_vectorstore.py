@@ -13,6 +13,15 @@ import re
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
+# SQLite3 버전 문제 해결을 위한 monkey patch
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    # pysqlite3가 없으면 기본 sqlite3 사용
+    pass
+
 # LangChain 관련 imports (최신 버전)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings

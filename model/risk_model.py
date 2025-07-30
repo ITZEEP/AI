@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 # 프로젝트 루트 경로 설정
 current_file_path = os.path.abspath(__file__)
-project_root = os.path.dirname(os.path.dirname(current_file_path))  # C:\LLM
+project_root = os.path.dirname(os.path.dirname(current_file_path))  # D:\itzip\AI-develop
 law_system_path = os.path.join(project_root, "law_system")
 
 # 프로젝트 루트를 sys.path에 추가
@@ -33,8 +33,13 @@ if law_system_path not in sys.path:
     sys.path.insert(0, law_system_path)
 
 # LangChain imports
-from langchain_core.prompts import PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
+try:
+    from langchain_core.prompts import PromptTemplate
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError as e:
+    print(f"ERROR: Failed to import LangChain dependencies: {e}")
+    print("Please install with: pip install langchain-core langchain-google-genai")
+    raise
 
 load_dotenv()
 
@@ -148,7 +153,11 @@ class JusoApiAddressVerifier:
         self.cache = {}  # 검증 결과 캐시
         
         if not self.api_key:
-            raise ValueError("Error: JUSO_API_KEY is not set. Please check your .env file.")
+            logger.warning("JUSO_API_KEY is not set. Address verification will use fallback method.")
+        else:
+            # API 키에서 공백 제거
+            self.api_key = self.api_key.strip()
+            logger.info("JUSO API initialized successfully")
     
     def verify_three_addresses(self, property_addr: str, registry_addr: str, building_addr: str) -> bool:
         """
@@ -352,30 +361,45 @@ class RiskAnalysisModel:
     def _setup_llm(self):
         """Gemini 1.5 Flash LLM 설정"""
         try:
+            # 환경 변수 확인
+            api_key = os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                raise ValueError("GOOGLE_API_KEY environment variable is not set")
+            
+            # API 키에서 공백 제거
+            api_key = api_key.strip()
+            
+            # ChatGoogleGenerativeAI 임포트 확인
+            if ChatGoogleGenerativeAI is None:
+                raise ImportError("ChatGoogleGenerativeAI could not be imported. Please install langchain-google-genai")
+            
             llm = ChatGoogleGenerativeAI(
                 model=self.model_name,
-                temperature=self.temperature
+                temperature=self.temperature,
+                google_api_key=api_key
             )
-            print("Success: Gemini LLM initialized.")
+            logger.info("Success: Gemini LLM initialized.")
             return llm
         except Exception as e:
-            print(f"Error: LLM initialization failed: {e}")
+            logger.error(f"Error: LLM initialization failed: {e}")
             raise
         
     def _setup_vectorstore(self):
         """법령 벡터스토어 설정 - 무조건 로딩"""
         if not LAW_SYSTEM_AVAILABLE:
-            raise RuntimeError("law_vectorstore is required but not available!")
+            raise RuntimeError("law_vectorstore is required but not available! Please check law_system module installation.")
         
         try:
+            logger.info("Initializing law vectorstore...")
             vectorstore = get_law_vectorstore()
             if vectorstore:
                 logger.info("Success: Vectorstore connected.")
                 return vectorstore
             else:
-                raise RuntimeError("Vectorstore is None - initialization failed!")
+                raise RuntimeError("Vectorstore is None - initialization failed! Check if vectorstore data exists in data/vectorstore/")
         except Exception as e:
             logger.error(f"Error: Vectorstore connection failed: {e}")
+            logger.error("Make sure ChromaDB is installed and vectorstore data exists")
             raise
     
     def analyze_risk(self, 
