@@ -1,5 +1,65 @@
 # 잇집 AI
 
+FastAPI 기반 부동산 문서 OCR 및 사기 위험도 분석 서비스
+
+## 🚀 원클릭 시작
+
+```bash
+# 전체 서비스 빌드 및 시작 (모든 기능 자동 활성화)
+docker-compose up --build
+```
+
+**끝!** 이제 http://localhost:8000 에서 모든 기능을 사용할 수 있습니다.
+
+### 제공 기능
+- ✅ 등기부등본 OCR 분석
+- ✅ 건축물대장 OCR 분석  
+- ✅ 계약서 특약사항 추출
+- ✅ 기본 위험도 분석
+- ✅ **벡터스토어 자동 설정** (법령 문서 추가 시 자동 활성화)
+
+### 고급 기능 활성화 (선택사항)
+
+법령 기반 상세 분석을 원한다면 PDF 법령 문서만 추가하세요:
+
+```bash
+# 1. 법령 PDF 파일 추가
+mkdir -p data/law_docs
+cp 주택임대차보호법.pdf data/law_docs/
+
+# 2. 서비스 재시작
+docker-compose restart
+```
+
+추가 기능:
+- ✅ 법령 기반 위험도 분석
+- ✅ 관련 법조문 자동 검색
+- ✅ AI 법령 해석
+
+## 🔧 문제 해결
+
+### 법령 분석 기능 추가 방법
+
+법령 기반 분석 기능을 사용하려면:
+
+```bash
+# 1. 법령 PDF 파일을 추가
+mkdir -p data/law_docs
+cp your_law_document.pdf data/law_docs/
+
+# 2. 서비스 재시작 (자동 벡터스토어 초기화)
+docker-compose restart
+```
+
+### 로그 확인
+```bash
+# 서비스 로그 확인
+docker-compose logs -f
+
+# 컨테이너 내부 확인
+docker exec -it itzip-ai-service ls -la data/
+```
+
 ### commit convention
 ✨ feat: 기능 추가, 삭제, 변경
 

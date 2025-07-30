@@ -1,0 +1,92 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+docs/
+*.md
+!README.md
+!API_SETUP.md
+!DOCKER_README.md
+CLAUDE.md
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Environment files (copy .env.example instead)
+.env
+.env.local
+.env.development
+.env.production
+
+# Credentials (mount as volume instead)
+credentials/*
+!credentials/.gitkeep
+
+# Test files
+test/
+tests/
+*_test.py
+test_*.py
+
+# Data files (should be mounted as volumes)
+data/
+vectorstore/
+*.pdf
+*.png
+*.jpg
+*.jpeg
+example/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Other
+.claude/
+.mypy_cache/
+.ruff_cache/
+*.bat
+*.ps1
+*.ipynb
+.ipynb_checkpoints/
+node_modules/

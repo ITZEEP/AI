@@ -23,7 +23,8 @@ from model.risk_model import (
     RegistryData, 
     BuildingData,
     RiskAnalysisResult,
-    RiskLevel
+    RiskLevel,
+    MortgageeInfo
 )
 
 logger = logging.getLogger(__name__)
@@ -110,8 +111,8 @@ class RiskReportGenerator:
         return PropertyInfo(
             home_id=home_id,
             address=address,
-            registered_user_name="홍길동", # TODO: Spring에서 실제 등록자 이름 받아야 함
-            residence_type="APARTMENT",      # TODO: Spring에서 실제 매물 타입 받아야 함
+            registered_user_name=registered_user_name,
+            residence_type=residence_type,
             lease_type=lease_type,
             deposit_price=deposit_price,
             monthly_rent=None # TODO: 월세인 경우 Spring에서 월세 금액 받아야 함
@@ -128,14 +129,29 @@ class RiskReportGenerator:
                 except (ValueError, TypeError):
                     logger.warning(f"생년월일 파싱 실패: {spring_dto.get('ownerBirthDate')}")
             
+            # 근저당권 목록 파싱
+            mortgagee_list = []
+            if spring_dto.get('mortgageeList'):
+                for m in spring_dto.get('mortgageeList', []):
+                    try:
+                        debtor_value = m.get('debtor', '')
+                        mortgagee_info = MortgageeInfo(
+                            priority_number=m.get('priorityNumber', 1),
+                            debtor=debtor_value if debtor_value else "미상",
+                            max_claim_amount=m.get('maxClaimAmount'),
+                            mortgagee=m.get('mortgagee', '')
+                        )
+                        mortgagee_list.append(mortgagee_info)
+                    except Exception as e:
+                        logger.warning(f"근저당권 정보 파싱 실패: {e}")
+            
             return RegistryData(
                 region_address=spring_dto.get('regionAddress', ''),
                 road_address=spring_dto.get('roadAddress', ''),
                 owner_name=spring_dto.get('ownerName', ''),
                 owner_birth_date=birth_date,
-                max_claim_amount=spring_dto.get('maxClaimAmount'),
-                debtor=spring_dto.get('debtor'),
-                mortgagee=spring_dto.get('mortgagee'),
+                debtor=spring_dto.get('debtor', ''),
+                mortgagee_list=mortgagee_list if mortgagee_list else None,
                 has_seizure=spring_dto.get('hasSeizure', False),
                 has_auction=spring_dto.get('hasAuction', False),
                 has_litigation=spring_dto.get('hasLitigation', False),
@@ -148,7 +164,8 @@ class RiskReportGenerator:
             return RegistryData(
                 region_address="파싱 실패",
                 road_address="파싱 실패",
-                owner_name="파싱 실패"
+                owner_name="파싱 실패",
+                debtor=""
             )
     
     def _parse_spring_building_dto(self, spring_dto: Dict[str, Any]) -> BuildingData:
@@ -251,8 +268,8 @@ class RiskReportGenerator:
     def _get_title_by_risk_level(self, risk_level: RiskLevel) -> str:
         """위험도에 따른 제목 반환"""
         title_map = {
-            RiskLevel.SAFE: "✅ 안전한 매물",
-            RiskLevel.WARN: "⚠️ 주의 필요",
+            RiskLevel.SAFE: "OK 안전한 매물",
+            RiskLevel.WARN: "WARNING 주의 필요",
             RiskLevel.DANGER: "🚨 위험 매물"
         }
         return title_map.get(risk_level, "분석 완료")

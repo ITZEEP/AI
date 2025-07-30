@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: itzip-ai-service
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount credentials (read-only)
+      - ./credentials:/app/credentials:ro
+      # Mount logs directory for persistence
+      - ./logs:/app/logs
+      # Mount law system documents
+      - ./law_system:/app/law_system
+      # Mount temp directory for file processing
+      - ./temp:/app/temp
+      # Mount data directory for vectorstore and documents
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/private_key.json
+      - PORT=8000
+      - HOST=0.0.0.0
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import requests; requests.get('http://localhost:8000/api/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 1G
+          cpus: "0.5"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+    name: itzip-network

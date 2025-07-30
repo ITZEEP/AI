@@ -1,8 +1,128 @@
-# 보안 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+.tox/
+.nox/
+.hypothesis/
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv
 .env
-private_key.json
-data/*
-example/*
-*/__pycache__
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Credentials and Secrets
+credentials/
+*.json
+*.pem
+*.key
+*.crt
+*.pfx
+!package.json
+!tsconfig.json
+.env
+.env.*
+!.env.example
+
+# Data and Models
+data/
+vectorstore/
+*.db
+*.sqlite
+*.sqlite3
+*.pkl
+*.h5
+*.model
+*.weights
+
+# Logs
+logs/
+*.log
+log/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+*.bak
+*.cache
+*.backup
+
+# OCR specific
+ocr_debug.json
+*.pdf
+!example/*.pdf
+extracted_texts/
+
+# Jupyter
 *.ipynb
-test*
+.ipynb_checkpoints/
+
+# Test files
+test/
+tests/
+test_*
+*_test.py
+*.test
+
+# Documentation
+*.md~
+.~*
+
+# OS Files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Windows specific
+*.bat
+*.ps1
+!docker-entrypoint.sh
+
+# Project specific
+CLAUDE.md
+.claude/
+example/
+law_docs/
+*.orig
+node_modules/
+
+# Keep these
+!README.md
+!requirements.txt
+!Dockerfile
+!docker-compose*.yml
+!.dockerignore
+!API_SETUP.md
+!DOCKER_README.md

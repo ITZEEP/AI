@@ -2,17 +2,29 @@ import pdfplumber
 import re
 import json
 import os
+import sys
 import fitz
 import cv2
 import numpy as np
 from google.cloud import vision
 from dotenv import load_dotenv
-import logging
-
-
+from config.logger_config import get_logger
 from datetime import datetime
 
-# ✅ 환경 변수 및 Vision API 클라이언트 설정
+# 프로젝트 루트를 Python 경로에 추가
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+sys.path.insert(0, project_root)
+
+logger = get_logger(__name__)
+
+try:
+    from config.path_resolver import get_google_credentials_path
+except ImportError:
+    logger.error("Failed to import path_resolver module")
+    raise
+
+# OK 환경 변수 및 Vision API 클라이언트 설정
 _vision_client = None
 
 
@@ -20,10 +32,15 @@ def get_vision_client():
     global _vision_client
     if _vision_client is None:
         load_dotenv()
-        json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if not json_path or not os.path.exists(json_path):
-            raise RuntimeError(
-                "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
+        
+        # 상대 경로를 절대 경로로 변환
+        try:
+            json_path = get_google_credentials_path()
+            # 환경 변수를 절대 경로로 업데이트
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = json_path
+        except (ValueError, FileNotFoundError) as e:
+            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}") from e
+        
         _vision_client = vision.ImageAnnotatorClient()
     return _vision_client
 
@@ -158,7 +175,44 @@ def parse_ocr_text_for_registration(ocr_text):
     return result
 
 
+def is_register_document(file_path):
+    """PDF가 등기부등본인지 확인하는 함수"""
+    try:
+        # 텍스트 기반 PDF 확인
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages[:3]:  # 처음 3페이지만 확인
+                text = page.extract_text()
+                if text and "등기사항" in text:
+                    return True
+        
+        # 이미지 기반 PDF인 경우 OCR로 확인
+        with fitz.open(file_path) as doc:
+            for page_num in range(min(3, len(doc))):
+                page = doc[page_num]
+                pix = page.get_pixmap(dpi=200)  # 적절한 해상도로 빠르게 확인
+                image = pixmap_to_bgr(pix)
+                
+                try:
+                    response = ocr_google_vision(image)
+                    if response.full_text_annotation:
+                        page_text = response.full_text_annotation.text
+                        if "등기사항" in page_text:
+                            return True
+                except Exception as e:
+                    logger.warning(f"OCR 처리 중 오류 (페이지 {page_num + 1}): {e}")
+                    continue
+                    
+        return False
+    except Exception as e:
+        print(f"문서 유형 확인 중 오류: {e}")
+        return False
+
+
 def extract_all_real_estate_info(file_path):
+    # 먼저 문서가 등기부등본인지 확인
+    if not is_register_document(file_path):
+        raise ValueError("등기부등본 PDF 파일이 아닙니다.")
+    
     result = {
         "file_name": os.path.basename(file_path),
         "extracted_at": datetime.now().isoformat(),
@@ -341,7 +395,6 @@ def extract_all_text_from_pdf(file_path):
 
 def check_legal_status(text_content, legal_status):
     """전체 텍스트에서 법적 상태 관련 키워드 확인"""
-    logger = logging.getLogger(__name__)
 
     # 가압류 관련 키워드
     seizure_keywords = ["가압류", "가압류등기", "가압류신청", "가압류명령", "가압류결정"]

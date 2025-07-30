@@ -11,7 +11,7 @@ from typing import Optional, List, Tuple
 from google.cloud import vision
 from dotenv import load_dotenv
 
-# ✅ 환경 변수 및 Vision API 클라이언트 설정
+# OK 환경 변수 및 Vision API 클라이언트 설정
 load_dotenv()
 json_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 if not json_path or not os.path.exists(json_path):
@@ -19,7 +19,7 @@ if not json_path or not os.path.exists(json_path):
         "환경 변수 GOOGLE_APPLICATION_CREDENTIALS가 없거나 경로가 잘못되었습니다.")
 vision_client = vision.ImageAnnotatorClient()
 
-# ✅ 텍스트 기반 PDF 특약사항 추출
+# OK 텍스트 기반 PDF 특약사항 추출
 
 
 def extract_special_terms_text_pdf(pdf_path: str) -> str:
@@ -44,7 +44,7 @@ def extract_special_terms_text_pdf(pdf_path: str) -> str:
                     buffer.append(clean_line)
     return '\n'.join(buffer).strip()
 
-# ✅ 이미지 기반 PDF 특약사항 추출
+# OK 이미지 기반 PDF 특약사항 추출
 
 
 def pixmap_to_bgr(pix):
@@ -79,7 +79,7 @@ def ocr_google_vision(image_np):
                         result.append((bounding_box, word_text))
     return result
 
-# ✅ OCR 결과 저장 + Y좌표 추출 디버깅
+# OK OCR 결과 저장 + Y좌표 추출 디버깅
 
 
 def save_ocr_debug_info(ocr_results: List[Tuple[List[Tuple[int, int]], str]], output_path="ocr_debug.json"):
@@ -163,7 +163,7 @@ def extract_special_terms(pdf_path: str) -> str:
         return f"[오류 발생]: {e}"
 
 
-# ✅ 실행 예시
+# OK 실행 예시
 if __name__ == "__main__":
     pdf_path = "../../example/20231006_02.pdf"
     result = extract_special_terms(pdf_path)
