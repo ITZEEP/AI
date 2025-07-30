@@ -9,7 +9,6 @@ generators/contract_report.py - 계약서 법령 적법성 검토 Spring 연동
 """
 import sys
 import os
-import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from dateutil import parser as date_parser
@@ -17,6 +16,7 @@ from dateutil import parser as date_parser
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # 내부 모듈 - 기존 LLM 코드에 맞게 import
+from config.logger_config import get_logger
 from model.clause_checker import (
     ContractInfo, 
     LegalViolation, 
@@ -24,7 +24,7 @@ from model.clause_checker import (
     check_contract_legality_for_spring
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ContractValidationGenerator:
@@ -281,50 +281,50 @@ def parse_pdf_contract_data(pdf_data: Dict[str, Any]) -> Dict[str, Any]:
     return ContractClauseParser.parse_contract_from_pdf_data(pdf_data)
 
 
-# 사용 예제
-if __name__ == "__main__":
-    print("\n=== 계약서 법령 검토 Spring 연동 테스트 (기존 LLM 활용) ===")
+# # 사용 예제
+# if __name__ == "__main__":
+#     print("\n=== 계약서 법령 검토 Spring 연동 테스트 (기존 LLM 활용) ===")
     
-    # 테스트용 Spring 계약서 데이터 (ERD 기반)
-    test_spring_data = {
-        "contract_id": 1,
-        "home_id": 1,
-        "owner_id": 1,
-        "buyer_id": 2,
-        "contract_date": "2024-01-01T00:00:00",
-        "contract_expire_date": "2025-12-31T00:00:00",
-        "deposit_price": 150000000,  # 1.5억원
-        "monthly_rent": 500000,
-        "maintenance_fee": 100000,
-        "special_clauses": [
-            "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
-            "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.",
-            "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",  # 명백한 위반
-            "임차인은 전대 및 양도를 할 수 없다."
-        ]
-    }
+#     # 테스트용 Spring 계약서 데이터 (ERD 기반)
+#     test_spring_data = {
+#         "contract_id": 1,
+#         "home_id": 1,
+#         "owner_id": 1,
+#         "buyer_id": 2,
+#         "contract_date": "2024-01-01T00:00:00",
+#         "contract_expire_date": "2025-12-31T00:00:00",
+#         "deposit_price": 150000000,  # 1.5억원
+#         "monthly_rent": 500000,
+#         "maintenance_fee": 100000,
+#         "special_clauses": [
+#             "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
+#             "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.",
+#             "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",  # 명백한 위반
+#             "임차인은 전대 및 양도를 할 수 없다."
+#         ]
+#     }
     
-    # 상세 법령 검토
-    print("🔍 상세 법령 검토 실행 중...")
-    detailed_result = validate_contract_for_spring(test_spring_data)
+#     # 상세 법령 검토
+#     print("🔍 상세 법령 검토 실행 중...")
+#     detailed_result = validate_contract_for_spring(test_spring_data)
     
-    print(f"검토 상태: {detailed_result['validation_status']}")
-    print(f"총 위반사항: {detailed_result['total_violations']}건")
-    print(f"권고사항: {detailed_result['recommendation']}")
+#     print(f"검토 상태: {detailed_result['validation_status']}")
+#     print(f"총 위반사항: {detailed_result['total_violations']}건")
+#     print(f"권고사항: {detailed_result['recommendation']}")
     
-    if detailed_result['violations']:
-        print("\n📋 발견된 문제점들:")
-        for i, violation in enumerate(detailed_result['violations'], 1):
-            print(f"\n--- {i}번째 문제점 ---")
-            print(f"어느 법령: {violation['law_name']}")
-            print(f"잘못된 내용: {violation['violation_content']}")
-            print(f"내용에 대한 설명: {violation['explanation']}")
-            print(f"근거: {violation['legal_basis']}")
-            print(f"🔧 개선방안: {violation['improvement_example']}")
+#     if detailed_result['violations']:
+#         print("\n📋 발견된 문제점들:")
+#         for i, violation in enumerate(detailed_result['violations'], 1):
+#             print(f"\n--- {i}번째 문제점 ---")
+#             print(f"어느 법령: {violation['law_name']}")
+#             print(f"잘못된 내용: {violation['violation_content']}")
+#             print(f"내용에 대한 설명: {violation['explanation']}")
+#             print(f"근거: {violation['legal_basis']}")
+#             print(f"🔧 개선방안: {violation['improvement_example']}")
     
-    print("\n🎉 테스트 완료!")
-    print("\n💡 Spring 연동 방법 (기존 LLM 코드 활용):")
-    print("   1. POST /api/contract/validate")
-    print("   2. Request Body: contract_data (ERD 기반)")
-    print("   3. Response: validation 결과 (기존 clause_checker.py LLM 처리)")
-    print("   4. LLM 모델: model/clause_checker.py의 ContractLegalChecker 활용")
+#     print("\n🎉 테스트 완료!")
+#     print("\n💡 Spring 연동 방법 (기존 LLM 코드 활용):")
+#     print("   1. POST /api/contract/validate")
+#     print("   2. Request Body: contract_data (ERD 기반)")
+#     print("   3. Response: validation 결과 (기존 clause_checker.py LLM 처리)")
+#     print("   4. LLM 모델: model/clause_checker.py의 ContractLegalChecker 활용")

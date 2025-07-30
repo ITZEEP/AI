@@ -10,7 +10,6 @@ model/clause_checker.py - 계약서 법령 적법성 검토 모델
 
 import sys
 import os
-import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,16 +32,19 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains import RetrievalQA
 
+load_dotenv()
+from config.logger_config import get_logger
+logger = get_logger(__name__)
+
 # law_system import
 try:
     from law_system.law_vectorstore import get_law_vectorstore, search_law
     LAW_SYSTEM_AVAILABLE = True
 except ImportError as e:
-    logging.error(f"❌ law_system import 실패: {e}")
+    logger.error(f"❌ law_system import 실패: {e}")
     LAW_SYSTEM_AVAILABLE = False
 
-load_dotenv()
-logger = logging.getLogger(__name__)
+
 
 
 class ViolationType(str, Enum):
