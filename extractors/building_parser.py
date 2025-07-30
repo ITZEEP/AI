@@ -73,8 +73,9 @@ class BuildingInfoExtractor:
                     for word in words:
                         if "건축물대장" in word[4]:
                             return True
-                except:
+                except Exception as ocr_error:
                     # OCR 실패시 텍스트만으로 판단
+                    print(f"OCR 처리 중 오류 (페이지 {page_num + 1}): {ocr_error}")
                     continue
                     
             return False
@@ -543,7 +544,6 @@ class BuildingInfoExtractor:
                             r'^([\d-]+)\s+(?:도로명|주소)', check_line)
                         if jibun_match:
                             jibun = jibun_match.group(1).strip()
-                            info["지번"] = jibun
                             print(f"지번 발견 (패턴): {jibun}")
                             break
                         else:

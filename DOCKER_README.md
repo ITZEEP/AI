@@ -12,34 +12,41 @@ This guide provides comprehensive instructions for running the 잇집 AI OCR ser
 ## Quick Start
 
 1. **Clone the repository and navigate to the project**
+
    ```bash
-   cd D:\itzip\AI-develop
+   cd /path/to/itzip/AI-develop
    ```
 
 2. **Set up environment variables**
+
    ```bash
    # Copy the example environment file
-   copy .env.example .env
-   
+   # Windows: copy .env.example .env
+   # Linux/Mac: cp .env.example .env
+   cp .env.example .env
+
    # Edit .env and add your API keys:
    # GOOGLE_APPLICATION_CREDENTIALS=credentials/google-vision-key.json
    # GOOGLE_API_KEY=your-google-api-key-here
    ```
 
 3. **Place your Google Cloud credentials**
+
    - Download your service account JSON from Google Cloud Console
    - Save it as `credentials/google-vision-key.json`
 
 4. **Build and run the service**
+
    ```bash
    docker-compose up -d
    ```
 
 5. **Verify the service is running**
+
    ```bash
    # Check health endpoint
    curl http://localhost:8000/health
-   
+
    # View API documentation
    # Open http://localhost:8000/docs in your browser
    ```
@@ -71,43 +78,50 @@ The `docker-compose.yml` provides:
 ## Volume Management
 
 ### Credentials Volume
+
 ```yaml
 ./credentials:/app/credentials:ro
 ```
+
 - Mount your Google Cloud service account JSON here
 - Read-only access for security
 - Never commit credentials to Git
 
 ### Data Volume
+
 ```yaml
 ./data:/app/data
 ```
+
 - Contains vector store for legal document analysis
 - Persists between container restarts
 - Initialize with `law_docs/` PDF files
 
 ### Logs Volume
+
 ```yaml
 ./logs:/app/logs
 ```
+
 - Application logs persist outside container
 - Useful for debugging and monitoring
 - Rotate logs periodically to save space
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
+| Variable                         | Description                   | Default                                   |
+| -------------------------------- | ----------------------------- | ----------------------------------------- |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to Google Cloud JSON key | `/app/credentials/google-vision-key.json` |
-| `GOOGLE_API_KEY` | Google Generative AI API key | Required |
-| `PORT` | Service port | `8000` |
-| `HOST` | Service host | `0.0.0.0` |
-| `LOG_LEVEL` | Logging level | `INFO` |
-| `LOG_FILE` | Log file path | `/app/logs/app.log` |
+| `GOOGLE_API_KEY`                 | Google Generative AI API key  | Required                                  |
+| `PORT`                           | Service port                  | `8000`                                    |
+| `HOST`                           | Service host                  | `0.0.0.0`                                 |
+| `LOG_LEVEL`                      | Logging level                 | `INFO`                                    |
+| `LOG_FILE`                       | Log file path                 | `/app/logs/app.log`                       |
 
 ## Common Docker Commands
 
 ### Service Management
+
 ```bash
 # Start the service
 docker-compose up -d
@@ -123,6 +137,7 @@ docker-compose ps
 ```
 
 ### Debugging
+
 ```bash
 # View logs
 docker-compose logs -f
@@ -138,6 +153,7 @@ docker stats itzip-ai-service
 ```
 
 ### Maintenance
+
 ```bash
 # Rebuild the image (after requirements change)
 docker-compose build --no-cache
@@ -163,21 +179,23 @@ deploy:
   resources:
     limits:
       memory: 2G
-      cpus: '1.0'
+      cpus: "1.0"
     reservations:
       memory: 1G
-      cpus: '0.5'
+      cpus: "0.5"
 ```
 
 ## Health Monitoring
 
 The service includes a health check that:
+
 - Runs every 30 seconds
 - Times out after 10 seconds
 - Retries 3 times before marking unhealthy
 - Waits 40 seconds before first check
 
 Check health status:
+
 ```bash
 docker inspect itzip-ai-service --format='{{.State.Health.Status}}'
 ```
@@ -185,21 +203,27 @@ docker inspect itzip-ai-service --format='{{.State.Health.Status}}'
 ## Troubleshooting
 
 ### Container won't start
+
 1. Check logs: `docker-compose logs`
 2. Verify credentials file exists: `ls credentials/`
 3. Ensure ports are available: `netstat -an | findstr 8000`
+   - Windows: `netstat -an | findstr 8000`
+   - Linux/Mac: `netstat -an | grep 8000` or `lsof -i :8000`
 
 ### OCR not working
+
 1. Verify Google Cloud credentials are valid
 2. Check API quotas in Google Cloud Console
 3. Review logs for authentication errors
 
 ### Out of memory errors
+
 1. Increase Docker Desktop memory allocation
 2. Adjust container memory limits in docker-compose.yml
 3. Check for memory leaks in logs
 
 ### Vector store initialization fails
+
 1. Ensure law_docs directory has PDF files
 2. Check file permissions
 3. Verify sufficient disk space
@@ -227,6 +251,7 @@ For production environments:
 ## Performance Optimization
 
 1. **Enable BuildKit** for faster builds:
+
    ```bash
    set DOCKER_BUILDKIT=1
    docker-compose build
@@ -240,15 +265,23 @@ For production environments:
 ## Backup and Recovery
 
 ### Backup data volumes
+
 ```bash
 # Backup vector store
+# Windows
 docker run --rm -v ai-develop_data:/data -v %cd%:/backup alpine tar czf /backup/data-backup.tar.gz -C /data .
+# Linux/Mac
+docker run --rm -v ai-develop_data:/data -v $(pwd):/backup alpine tar czf /backup/data-backup.tar.gz -C /data .
 
 # Backup logs
+# Windows
 docker run --rm -v ai-develop_logs:/logs -v %cd%:/backup alpine tar czf /backup/logs-backup.tar.gz -C /logs .
+# Linux/Mac
+docker run --rm -v ai-develop_logs:/logs -v $(pwd):/backup alpine tar czf /backup/logs-backup.tar.gz -C /logs .
 ```
 
 ### Restore from backup
+
 ```bash
 # Restore vector store
 docker run --rm -v ai-develop_data:/data -v %cd%:/backup alpine tar xzf /backup/data-backup.tar.gz -C /data
@@ -260,6 +293,7 @@ docker run --rm -v ai-develop_logs:/logs -v %cd%:/backup alpine tar xzf /backup/
 ## Support
 
 For issues or questions:
+
 1. Check the logs first: `docker-compose logs`
 2. Review this documentation
 3. Check the main README.md for API usage

@@ -3,8 +3,11 @@ OCR 결과를 Spring DTO 형식으로 변환하는 유틸리티
 """
 from typing import Dict, Any, Optional, List, Union
 from datetime import datetime
+from config.logger_config import get_logger
 import re
 
+
+logger = get_logger(__name__)
 
 class DtoConverter:
     """OCR 결과를 Spring DTO 형식으로 변환하는 클래스"""
@@ -120,7 +123,8 @@ class DtoConverter:
                             if "순위번호" in str(key):
                                 try:
                                     priority_num = int(re.search(r'\d+', str(value)).group()) if re.search(r'\d+', str(value)) else priority_counter
-                                except:
+                                except (AttributeError, ValueError) as e:
+                                    logger.debug(f"순위번호 추출 실패: {e}")
                                     priority_num = priority_counter
                                 break
                         

@@ -1,5 +1,5 @@
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Optional, Any
+from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, Field
 
 
@@ -22,7 +22,7 @@ class ApiResponse(BaseModel):
     message: Optional[str] = None
     data: Optional[Any] = None
     error: Optional[ErrorDetails] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone(timedelta(hours=9))))
 
     class Config:
         populate_by_name = True

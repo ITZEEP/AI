@@ -4,9 +4,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import os
 import tempfile
-from typing import Dict, Any, Optional, List
-import logging
-from datetime import datetime
+from typing import Optional, List
 
 # UTF-8 인코딩 설정
 import sys

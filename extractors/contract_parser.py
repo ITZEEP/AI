@@ -7,7 +7,7 @@ import json
 import numpy as np
 import fitz  # PyMuPDF
 import cv2
-from typing import Optional, List, Tuple
+from typing import List, Tuple
 from google.cloud import vision
 from dotenv import load_dotenv
 from datetime import datetime
@@ -31,7 +31,7 @@ def get_vision_client():
             # 환경 변수를 절대 경로로 업데이트
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = json_path
         except (ValueError, FileNotFoundError) as e:
-            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}")
+            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}") from e
         
         _vision_client = vision.ImageAnnotatorClient()
     return _vision_client

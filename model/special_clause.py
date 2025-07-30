@@ -723,7 +723,7 @@ def test_clause_system():
     
     # 시스템 상태 확인
     status = get_system_status_spring()
-    print(f"🔧 시스템 상태:")
+    print(f"시스템 상태:")
     print(f"   LLM: {status['llm_status']}")
     print(f"   벡터스토어: {status['vectorstore_status']}")
     print(f"   활성 방: {status['active_rooms']}개")
@@ -744,25 +744,25 @@ def test_clause_system():
     }
     
     # 1. 초기 특약 추천 테스트
-    print(f"\n🎯 1단계: 초기 특약 추천")
+    print(f"\n[1단계]: 초기 특약 추천")
     initial_result = get_initial_clause_recommendations(
         room_id, landlord_survey, tenant_survey, "test_contract.json"
     )
     
     if initial_result["success"]:
-        print(f"OK 초기 특약 {initial_result['total_count']}개 추천 완료")
+        print(f"[OK] 초기 특약 {initial_result['total_count']}개 추천 완료")
         
         # 특약 미리보기
         for clause in initial_result["clauses"][:3]:
-            print(f"\n📋 {clause['id']}번: {clause['title']}")
-            print(f"   🏠 임대인: {clause['landlord_assessment']['safety_level']}")
-            print(f"   🏡 임차인: {clause['tenant_assessment']['safety_level']}")
+            print(f"\n[특약] {clause['id']}번: {clause['title']}")
+            print(f"   임대인: {clause['landlord_assessment']['safety_level']}")
+            print(f"   임차인: {clause['tenant_assessment']['safety_level']}")
     else:
         print(f"ERROR 실패: {initial_result.get('error', 'Unknown error')}")
         return
     
     # 2. 대화 기반 개선 테스트 (1라운드)
-    print(f"\n🔄 2단계: 1라운드 특약 개선")
+    print(f"\n[2단계]: 1라운드 특약 개선")
     
     test_conversation = """
     임대인: 애완동물은 절대 안 됩니다. 냉새와 소음 때문에 다른 입주자들이 불편해할 수 있어요.
@@ -783,15 +783,15 @@ def test_clause_system():
     
     if improve_result_1["success"]:
         improved_1 = improve_result_1["improved_clause"]
-        print(f"OK 1라운드 완료: {improved_1['title']}")
-        print(f"   🏠 임대인: {improved_1['landlord_assessment']['safety_level']}")
-        print(f"   🏡 임차인: {improved_1['tenant_assessment']['safety_level']}")
+        print(f"[OK] 1라운드 완료: {improved_1['title']}")
+        print(f"   임대인: {improved_1['landlord_assessment']['safety_level']}")
+        print(f"   임차인: {improved_1['tenant_assessment']['safety_level']}")
     else:
-        print(f"ERROR 1라운드 실패: {improve_result_1.get('error')}")
+        print(f"[ERROR] 1라운드 실패: {improve_result_1.get('error')}")
         return
     
     # 3. 대화 기반 개선 테스트 (2라운드)
-    print(f"\n🔄 3단계: 2라운드 특약 개선")
+    print(f"\n[3단계]: 2라운드 특약 개선")
     
     second_conversation = """
     임대인: 생각해보니 매월 2만원 청소비도 부담스럽습니다. 대신 3개월마다 전문 청소업체 비용을 반반 나눠서 내는 건 어떨까요?
@@ -807,11 +807,11 @@ def test_clause_system():
     
     if improve_result_2["success"]:
         improved_2 = improve_result_2["improved_clause"]
-        print(f"OK 2라운드 완료: {improved_2['title']}")
-        print(f"   🏠 임대인: {improved_2['landlord_assessment']['safety_level']}")
-        print(f"   🏡 임차인: {improved_2['tenant_assessment']['safety_level']}")
+        print(f"[OK] 2라운드 완료: {improved_2['title']}")
+        print(f"   임대인: {improved_2['landlord_assessment']['safety_level']}")
+        print(f"   임차인: {improved_2['tenant_assessment']['safety_level']}")
     else:
-        print(f"ERROR 2라운드 실패: {improve_result_2.get('error')}")
+        print(f"[ERROR] 2라운드 실패: {improve_result_2.get('error')}")
         return
     
     # 4. 세션 종료 테스트
@@ -820,7 +820,7 @@ def test_clause_system():
     finalize_result = finalize_room_session_spring(room_id, "max_rounds")
     
     if finalize_result["success"]:
-        print(f"OK 세션 종료 완료")
+        print("OK 세션 종료 완료")
         print(f"   종료 사유: {finalize_result['termination_reason']}")
         print(f"   최종 특약 수: {finalize_result['final_clause_count']}개")
         print(f"   메시지: {finalize_result['message']}")
@@ -829,17 +829,17 @@ def test_clause_system():
     
     # 5. 시스템 상태 재확인
     final_status = get_system_status_spring()
-    print(f"\n📊 최종 시스템 상태:")
+    print("\n[RESULT] 최종 시스템 상태:")
     print(f"   활성 방: {final_status['active_rooms']}개 (정리됨)")
     
-    print("\nSUCCESS 테스트 완료!")
-    print("\nINFO 테스트 결과 요약:")
-    print(f"   OK 초기 추천: 성공")
-    print(f"   OK 1라운드 개선: 성공") 
-    print(f"   OK 2라운드 개선: 성공")
-    print(f"   OK 세션 종료: 성공")
-    print(f"   OK 중복 방지: 적용됨")
-    print(f"   OK 전체 컨텍스트: 활용됨")
+    print("\n[SUCCESS] 테스트 완료!")
+    print("\n[INFO] 테스트 결과 요약:")
+    print("   [OK] 초기 추천: 성공")
+    print("   [OK] 1라운드 개선: 성공") 
+    print("   [OK] 2라운드 개선: 성공")
+    print("   [OK] 세션 종료: 성공")
+    print("   [OK] 중복 방지: 적용됨")
+    print("   [OK] 전체 컨텍스트: 활용됨")
     
 
 if __name__ == "__main__":

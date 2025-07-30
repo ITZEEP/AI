@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from google.cloud import vision
 from dotenv import load_dotenv
-import logging
+from config.logger_config import get_logger
 from datetime import datetime
 
 # 프로젝트 루트를 Python 경로에 추가
@@ -16,12 +16,12 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
+logger = get_logger(__name__)
+
 try:
     from config.path_resolver import get_google_credentials_path
 except ImportError:
-    print(f"현재 디렉토리: {current_dir}")
-    print(f"프로젝트 루트: {project_root}")
-    print(f"sys.path: {sys.path}")
+    logger.error("Failed to import path_resolver module")
     raise
 
 # OK 환경 변수 및 Vision API 클라이언트 설정
@@ -189,7 +189,7 @@ def is_register_document(file_path):
         with fitz.open(file_path) as doc:
             for page_num in range(min(3, len(doc))):
                 page = doc[page_num]
-                pix = page.get_pixmap(dpi=150)  # 낮은 해상도로 빠르게 확인
+                pix = page.get_pixmap(dpi=200)  # 적절한 해상도로 빠르게 확인
                 image = pixmap_to_bgr(pix)
                 
                 try:
@@ -199,6 +199,7 @@ def is_register_document(file_path):
                         if "등기사항" in page_text:
                             return True
                 except:
+                    logger.warning(f"OCR 처리 중 오류 (페이지 {page_num}): {e}")
                     continue
                     
         return False
@@ -394,7 +395,6 @@ def extract_all_text_from_pdf(file_path):
 
 def check_legal_status(text_content, legal_status):
     """전체 텍스트에서 법적 상태 관련 키워드 확인"""
-    logger = logging.getLogger(__name__)
 
     # 가압류 관련 키워드
     seizure_keywords = ["가압류", "가압류등기", "가압류신청", "가압류명령", "가압류결정"]
