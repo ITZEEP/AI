@@ -11,7 +11,6 @@ model/clause_checker.py - 계약서 법령 적법성 검토 모델
 import sys
 import os
 import logging
-import re
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -361,7 +360,7 @@ class ContractLegalChecker:
     def _parse_full_contract_analysis_improved(self, llm_result: str) -> List[LegalViolation]:
         """개선된 전체 계약서 LLM 분석 결과 파싱"""
         try:
-            logger.info(f"🔍 전체 계약서 분석 결과 파싱 시작")
+            logger.info("🔍 전체 계약서 분석 결과 파싱 시작")
             
             violations = []
             
@@ -600,132 +599,132 @@ def check_contract_legality_for_spring(contract_id: int,
 
 
     
-import time
-from datetime import datetime
+# import time
+# from datetime import datetime
 
-def test_improved_contract_checker():
-    """개선된 계약서 검토 시스템 테스트 - 시간 측정 포함"""
+# def test_improved_contract_checker():
+#     """개선된 계약서 검토 시스템 테스트 - 시간 측정 포함"""
     
-    # ⏰ 시작 시간 기록
-    start_time = time.time()
-    start_datetime = datetime.now()
+#     # ⏰ 시작 시간 기록
+#     start_time = time.time()
+#     start_datetime = datetime.now()
     
-    print(f"\n=== 개선된 계약서 법령 검토 시스템 테스트 ===")
-    print(f"🕐 테스트 시작 시각: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60)
+#     print("\n=== 개선된 계약서 법령 검토 시스템 테스트 ===")
+#     print(f"🕐 테스트 시작 시각: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+#     print("=" * 60)
     
-    # 🚨 실제 문제가 있는 특약들로 테스트
-    problematic_clauses = [
-        "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
-            "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.",
-            "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",  # 명백한 위반
-            "임차인은 전대 및 양도를 할 수 없다."
-    ]
+#     # 🚨 실제 문제가 있는 특약들로 테스트
+#     problematic_clauses = [
+#         "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
+#             "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.",
+#             "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",  # 명백한 위반
+#             "임차인은 전대 및 양도를 할 수 없다."
+#     ]
     
-    # ✅ 문제없는 일반 조항들도 포함
-    normal_clauses = [
-        "임차인은 임대차 목적물을 선량한 관리자의 주의로 사용해야 한다.",  # 일반적 조항
-        "월세는 매월 말일까지 지급한다.",  # 표준 조항
-        "계약기간은 2년으로 한다."  # 법정 기간
-    ]
+#     # ✅ 문제없는 일반 조항들도 포함
+#     normal_clauses = [
+#         "임차인은 임대차 목적물을 선량한 관리자의 주의로 사용해야 한다.",  # 일반적 조항
+#         "월세는 매월 말일까지 지급한다.",  # 표준 조항
+#         "계약기간은 2년으로 한다."  # 법정 기간
+#     ]
     
-    # 🏗️ 테스트 계약 정보 생성
-    setup_start = time.time()
-    test_contract_info = ContractInfo(
-        contract_id=1,
-        home_id=1,
-        owner_id=1,
-        buyer_id=2,
-        contract_date=datetime(2024, 1, 1),
-        contract_expire_date=datetime(2025, 12, 31),  # 2년 계약
-        deposit_price=300000000,  # 3억원
-        monthly_rent=0,  # 전세
-        maintenance_fee=150000,
-        special_clauses=problematic_clauses + normal_clauses  # 문제 조항 + 일반 조항
-    )
-    setup_time = time.time() - setup_start
-    print(f"📋 계약 정보 생성 시간: {setup_time:.2f}초")
+#     # 🏗️ 테스트 계약 정보 생성
+#     setup_start = time.time()
+#     test_contract_info = ContractInfo(
+#         contract_id=1,
+#         home_id=1,
+#         owner_id=1,
+#         buyer_id=2,
+#         contract_date=datetime(2024, 1, 1),
+#         contract_expire_date=datetime(2025, 12, 31),  # 2년 계약
+#         deposit_price=300000000,  # 3억원
+#         monthly_rent=0,  # 전세
+#         maintenance_fee=150000,
+#         special_clauses=problematic_clauses + normal_clauses  # 문제 조항 + 일반 조항
+#     )
+#     setup_time = time.time() - setup_start
+#     print(f"📋 계약 정보 생성 시간: {setup_time:.2f}초")
     
-    # 🤖 LLM 초기화 시간 측정
-    print("🔧 AI 모델 초기화 중...")
-    init_start = time.time()
-    checker = get_contract_legal_checker()
-    init_time = time.time() - init_start
-    print(f"🤖 AI 모델 초기화 시간: {init_time:.2f}초")
+#     # 🤖 LLM 초기화 시간 측정
+#     print("🔧 AI 모델 초기화 중...")
+#     init_start = time.time()
+#     checker = get_contract_legal_checker()
+#     init_time = time.time() - init_start
+#     print(f"🤖 AI 모델 초기화 시간: {init_time:.2f}초")
     
-    # 📊 실제 검토 시간 측정
-    print("🔍 계약서 법령 검토 시작...")
-    analysis_start = time.time()
-    violations = checker.check_contract_legality(test_contract_info)
-    analysis_time = time.time() - analysis_start
-    print(f"⚖️ 법령 검토 분석 시간: {analysis_time:.2f}초")
+#     # 📊 실제 검토 시간 측정
+#     print("🔍 계약서 법령 검토 시작...")
+#     analysis_start = time.time()
+#     violations = checker.check_contract_legality(test_contract_info)
+#     analysis_time = time.time() - analysis_start
+#     print(f"⚖️ 법령 검토 분석 시간: {analysis_time:.2f}초")
     
-    # 📈 결과 출력
-    result_start = time.time()
-    if violations:
-        print(f"\n⚠️ 총 {len(violations)}건의 실제 법령 위반사항 발견:")
+#     # 📈 결과 출력
+#     result_start = time.time()
+#     if violations:
+#         print(f"\n⚠️ 총 {len(violations)}건의 실제 법령 위반사항 발견:")
         
-        # 🎯 "즉시 퇴거" 조항 검출 확인
-        instant_eviction_found = False
+#         # 🎯 "즉시 퇴거" 조항 검출 확인
+#         instant_eviction_found = False
         
-        for i, violation in enumerate(violations, 1):
-            print(f"\n--- {i}번째 위반사항 ---")
-            print(f"위반법령: {violation.law_name}")
-            print(f"위반내용: {violation.violation_content}")
-            print(f"내용설명: {violation.explanation}")
-            print(f"법적근거: {violation.legal_basis}")
-            print(f"🔧 개선방안: {violation.improvement_example}")
-            print(f"원본조항: {violation.original_clause}")
+#         for i, violation in enumerate(violations, 1):
+#             print(f"\n--- {i}번째 위반사항 ---")
+#             print(f"위반법령: {violation.law_name}")
+#             print(f"위반내용: {violation.violation_content}")
+#             print(f"내용설명: {violation.explanation}")
+#             print(f"법적근거: {violation.legal_basis}")
+#             print(f"🔧 개선방안: {violation.improvement_example}")
+#             print(f"원본조항: {violation.original_clause}")
             
-            # "즉시 퇴거" 검출 확인
-            if "즉시" in violation.original_clause and "퇴거" in violation.original_clause:
-                instant_eviction_found = True
-                print("🎯 *** 즉시 퇴거 조항 검출 성공! ***")
+#             # "즉시 퇴거" 검출 확인
+#             if "즉시" in violation.original_clause and "퇴거" in violation.original_clause:
+#                 instant_eviction_found = True
+#                 print("🎯 *** 즉시 퇴거 조항 검출 성공! ***")
         
-        print(f"\n📊 검출 결과 분석:")
-        print(f"   - 총 위반사항: {len(violations)}건")
-        print(f"   - 즉시 퇴거 조항: {'✅ 검출됨' if instant_eviction_found else '❌ 미검출'}")
+#         print(f"\n📊 검출 결과 분석:")
+#         print(f"   - 총 위반사항: {len(violations)}건")
+#         print(f"   - 즉시 퇴거 조항: {'✅ 검출됨' if instant_eviction_found else '❌ 미검출'}")
         
-    else:
-        print("\n✅ 검토 결과 법령에 위반되는 조항이 발견되지 않았습니다.")
-        print("⚠️ 주의: 명백한 위반 조항들이 있는데 검출되지 않았습니다.")
+#     else:
+#         print("\n✅ 검토 결과 법령에 위반되는 조항이 발견되지 않았습니다.")
+#         print("⚠️ 주의: 명백한 위반 조항들이 있는데 검출되지 않았습니다.")
     
-    result_time = time.time() - result_start
-    print(f"📄 결과 출력 시간: {result_time:.2f}초")
+#     result_time = time.time() - result_start
+#     print(f"📄 결과 출력 시간: {result_time:.2f}초")
     
-    # ⏰ 총 실행 시간 계산
-    total_time = time.time() - start_time
-    end_datetime = datetime.now()
+#     # ⏰ 총 실행 시간 계산
+#     total_time = time.time() - start_time
+#     end_datetime = datetime.now()
     
-    print("\n" + "=" * 60)
-    print("⏱️ 시간 측정 결과:")
-    print("=" * 60)
-    print(f"🕐 시작 시각: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"🕕 종료 시각: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"⏱️ 총 실행 시간: {total_time:.2f}초 ({total_time/60:.1f}분)")
-    print()
-    print("📊 세부 시간 분석:")
-    print(f"   📋 계약 정보 생성: {setup_time:.2f}초 ({setup_time/total_time*100:.1f}%)")
-    print(f"   🤖 AI 모델 초기화: {init_time:.2f}초 ({init_time/total_time*100:.1f}%)")
-    print(f"   ⚖️ 법령 검토 분석: {analysis_time:.2f}초 ({analysis_time/total_time*100:.1f}%)")
-    print(f"   📄 결과 출력: {result_time:.2f}초 ({result_time/total_time*100:.1f}%)")
-    print()
+#     print("\n" + "=" * 60)
+#     print("⏱️ 시간 측정 결과:")
+#     print("=" * 60)
+#     print(f"🕐 시작 시각: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+#     print(f"🕕 종료 시각: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+#     print(f"⏱️ 총 실행 시간: {total_time:.2f}초 ({total_time/60:.1f}분)")
+#     print()
+#     print("📊 세부 시간 분석:")
+#     print(f"   📋 계약 정보 생성: {setup_time:.2f}초 ({setup_time/total_time*100:.1f}%)")
+#     print(f"   🤖 AI 모델 초기화: {init_time:.2f}초 ({init_time/total_time*100:.1f}%)")
+#     print(f"   ⚖️ 법령 검토 분석: {analysis_time:.2f}초 ({analysis_time/total_time*100:.1f}%)")
+#     print(f"   📄 결과 출력: {result_time:.2f}초 ({result_time/total_time*100:.1f}%)")
+#     print()
     
-    # 💡 성능 평가
-    if total_time < 30:
-        performance = "🚀 매우 빠름"
-    elif total_time < 60:
-        performance = "⚡ 빠름"
-    elif total_time < 120:
-        performance = "🐌 보통"
-    else:
-        performance = "🐢 느림"
+#     # 💡 성능 평가
+#     if total_time < 30:
+#         performance = "🚀 매우 빠름"
+#     elif total_time < 60:
+#         performance = "⚡ 빠름"
+#     elif total_time < 120:
+#         performance = "🐌 보통"
+#     else:
+#         performance = "🐢 느림"
     
-    print(f"🎯 성능 평가: {performance}")
-    print(f"💡 분석 속도: 특약 {len(problematic_clauses + normal_clauses)}개를 {analysis_time:.1f}초에 처리")
+#     print(f"🎯 성능 평가: {performance}")
+#     print(f"💡 분석 속도: 특약 {len(problematic_clauses + normal_clauses)}개를 {analysis_time:.1f}초에 처리")
 
 
-if __name__ == "__main__":
-    # 기존 테스트
-    test_improved_contract_checker()
+# if __name__ == "__main__":
+#     # 기존 테스트
+#     test_improved_contract_checker()
     

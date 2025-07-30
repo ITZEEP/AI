@@ -12,12 +12,12 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from dateutil import parser as date_parser
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # 내부 모듈 - 기존 LLM 코드에 맞게 import
 from model.clause_checker import (
-    ContractLegalChecker, 
     ContractInfo, 
     LegalViolation, 
     ViolationType,
@@ -127,17 +127,13 @@ class ContractValidationGenerator:
     def _parse_datetime(self, date_str: Optional[str]) -> datetime:
         """날짜 문자열을 datetime 객체로 변환"""
         if not date_str:
-            return datetime.now()
+            raise ValueError("날짜 문자열이 비어있습니다")
         
         try:
-            # ISO 형식 파싱 시도
-            if 'T' in date_str:
-                return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            else:
-                return datetime.strptime(date_str, '%Y-%m-%d')
+            return date_parser.parse(date_str)
         except Exception as e:
             logger.warning(f"날짜 파싱 실패: {date_str}, 오류: {e}")
-            return datetime.now()
+            raise ValueError(f"날짜 파싱 실패: {date_str}")
     
     def _convert_to_spring_format(self, violations: List[LegalViolation], 
                                  contract_info: ContractInfo) -> Dict[str, Any]:
@@ -317,7 +313,7 @@ if __name__ == "__main__":
     print(f"권고사항: {detailed_result['recommendation']}")
     
     if detailed_result['violations']:
-        print(f"\n📋 발견된 문제점들:")
+        print("\n📋 발견된 문제점들:")
         for i, violation in enumerate(detailed_result['violations'], 1):
             print(f"\n--- {i}번째 문제점 ---")
             print(f"어느 법령: {violation['law_name']}")
@@ -326,9 +322,9 @@ if __name__ == "__main__":
             print(f"근거: {violation['legal_basis']}")
             print(f"🔧 개선방안: {violation['improvement_example']}")
     
-    print(f"\n🎉 테스트 완료!")
-    print(f"\n💡 Spring 연동 방법 (기존 LLM 코드 활용):")
-    print(f"   1. POST /api/contract/validate")
-    print(f"   2. Request Body: contract_data (ERD 기반)")
-    print(f"   3. Response: validation 결과 (기존 clause_checker.py LLM 처리)")
-    print(f"   4. LLM 모델: model/clause_checker.py의 ContractLegalChecker 활용") 
+    print("\n🎉 테스트 완료!")
+    print("\n💡 Spring 연동 방법 (기존 LLM 코드 활용):")
+    print("   1. POST /api/contract/validate")
+    print("   2. Request Body: contract_data (ERD 기반)")
+    print("   3. Response: validation 결과 (기존 clause_checker.py LLM 처리)")
+    print("   4. LLM 모델: model/clause_checker.py의 ContractLegalChecker 활용")
