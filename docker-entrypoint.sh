@@ -31,9 +31,14 @@ else
     echo "📦 All packages installed during Docker build"
     
     # Check if law_docs directory has PDF files
-    if [ -d "/app/data/law_docs" ] && [ "$(ls -A /app/data/law_docs/*.pdf 2>/dev/null)" ]; then
+    if [ -d "/app/data/law_docs" ] && find /app/data/law_docs -name "*.pdf" -print -quit | grep -q .; then
         echo "📄 Found law documents, initializing vectorstore..."
-        python init_vectorstore.py && echo "✅ Vectorstore initialized successfully" || echo "⚠️ Vectorstore initialization failed, continuing without legal analysis"
+        if python init_vectorstore.py; then
+        echo "✅ Vectorstore initialized successfully"
+        else
+            echo "⚠️ Vectorstore initialization failed, continuing without legal analysis"
+            echo "   Check logs above for detailed error information"
+        fi
     else
         echo "📁 No law documents found, creating directory structure..."
         mkdir -p /app/data/law_docs

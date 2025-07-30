@@ -29,7 +29,7 @@ class BuildingInfoExtractor:
             # 환경 변수를 절대 경로로 업데이트
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = json_path
         except (ValueError, FileNotFoundError) as e:
-            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}")
+            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}") from e
         
         # 클라이언트를 None으로 초기화하고 필요할 때 생성
         self._vision_client = None

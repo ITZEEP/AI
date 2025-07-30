@@ -39,7 +39,7 @@ def get_vision_client():
             # 환경 변수를 절대 경로로 업데이트
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = json_path
         except (ValueError, FileNotFoundError) as e:
-            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}")
+            raise RuntimeError(f"Google Cloud 인증 설정 오류: {e}") from e
         
         _vision_client = vision.ImageAnnotatorClient()
     return _vision_client
@@ -198,8 +198,8 @@ def is_register_document(file_path):
                         page_text = response.full_text_annotation.text
                         if "등기사항" in page_text:
                             return True
-                except:
-                    logger.warning(f"OCR 처리 중 오류 (페이지 {page_num}): {e}")
+                except Exception as e:
+                    logger.warning(f"OCR 처리 중 오류 (페이지 {page_num + 1}): {e}")
                     continue
                     
         return False
