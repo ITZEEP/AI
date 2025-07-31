@@ -10,7 +10,6 @@ model/risk_model.py - 행정안전부 도로명주소 API 기반 사기위험도
 
 import sys
 import os
-import logging
 import re
 import requests
 from typing import Dict, List, Optional
@@ -52,7 +51,8 @@ except ImportError:
     LAW_SYSTEM_AVAILABLE = False
     print("WARNING: law_vectorstore를 사용할 수 없습니다.")
 
-logger = logging.getLogger(__name__)
+from config.logger_config import get_logger
+logger = get_logger(__name__)
 
 
 class RiskLevel(str, Enum):
@@ -480,7 +480,7 @@ class RiskAnalysisModel:
         
         # 2순위: 근저당권 비율
         mortgage_ratio = self._calculate_mortgage_risk_ratio(registry_data, property_info)
-        if mortgage_ratio > 60:
+        if mortgage_ratio >= 70:
             logger.warning(f"근저당 비율 위험: {mortgage_ratio:.1f}%")
             return RiskLevel.DANGER
         elif mortgage_ratio > 30:
@@ -495,24 +495,15 @@ class RiskAnalysisModel:
             logger.warning("권리제한 사항 발견")
             return RiskLevel.DANGER
         
-        # 4순위: 주소 일치성 (행정안전부 API 기반 정확한 검증)
-        # address_match = self.address_verifier.verify_three_addresses(
-        #     property_info.address, 
-        #     registry_data.region_address, 
-        #     building_data.site_location
-        # )
-        
-        
+        # 4순위: 주소 일치성
         if not address_match:
             logger.warning("주소 불일치 감지 (API 검증)")
-            if current_risk == RiskLevel.SAFE:
-                current_risk = RiskLevel.WARN
-        
-        # 5순위: 위반건축물
+            return RiskLevel.DANGER  # 즉시 반환
+
+        # 5순위: 위반건축물  
         if building_data.is_violation_building:
             logger.warning("위반건축물 감지")
-            if current_risk == RiskLevel.SAFE:
-                current_risk = RiskLevel.WARN
+            return RiskLevel.DANGER
         
         return current_risk
     
@@ -820,7 +811,7 @@ if __name__ == "__main__":
             MortgageeInfo(
                 priority_number=1,
                 debtor="홍길동",
-                max_claim_amount=200000000,  # 25% 비율 (안전)
+                max_claim_amount=2000000000,  # 25% 비율 (안전)
                 mortgagee="KB국민은행"
             )
         ],
