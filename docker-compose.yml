@@ -5,7 +5,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      cache_from:
+        - python:3.12-slim
     container_name: itzip-ai-service
+    image: itzip-ai:latest
     ports:
       - "8000:8000"
     volumes:
@@ -19,12 +22,16 @@ services:
       - ./temp:/app/temp
       # Mount data directory for vectorstore and documents
       - ./data:/app/data
+      # Cache pip packages between container recreations
+      - pip-cache:/root/.cache/pip
     environment:
       - PYTHONUNBUFFERED=1
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/private_key.json
       - PORT=8000
       - HOST=0.0.0.0
       - PYTHONPATH=/app
+      - CHROMA_TELEMETRY_DISABLED=true
+      - TOKENIZERS_PARALLELISM=false
     env_file:
       - .env
     restart: unless-stopped
@@ -36,7 +43,7 @@ services:
           "-c",
           "import requests; requests.get('http://localhost:8000/api/health')",
         ]
-      interval: 30s
+      interval: 5m # 5분마다 체크
       timeout: 10s
       retries: 3
       start_period: 40s
@@ -48,6 +55,37 @@ services:
         reservations:
           memory: 1G
           cpus: "0.5"
+    command: >
+      bash -c "
+        echo '🚀 Starting AI OCR Service with Auto-Initialization...' &&
+        
+        # Check Google Cloud credentials
+        if [ -f '/app/credentials/private_key.json' ]; then
+          echo 'Google Cloud credentials found'
+        else
+          echo 'Google Cloud credentials not found at /app/credentials/private_key.json'
+        fi &&
+        
+        # Clean up old temporary files
+        find /app/temp -type f -mtime +1 -delete 2>/dev/null || true &&
+        
+        # Initialize vectorstore if needed
+        if [ -d '/app/data/vectorstore' ] && [ -n '$$(ls -A /app/data/vectorstore 2>/dev/null)' ]; then
+          echo 'Law vectorstore already exists'
+        else
+          echo 'Checking for law documents...'
+          if [ -d '/app/data/law_docs' ] && find /app/data/law_docs -name '*.pdf' -print -quit | grep -q .; then
+            echo 'Found law documents, initializing vectorstore...'
+            python init_vectorstore.py || echo 'Vectorstore initialization failed'
+          else
+            echo 'No law documents found'
+            mkdir -p /app/data/law_docs
+          fi
+        fi &&
+        
+        echo 'Environment setup completed - Starting service...' &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+      "
     networks:
       - app-network
 
@@ -55,3 +93,7 @@ networks:
   app-network:
     driver: bridge
     name: itzip-network
+
+volumes:
+  pip-cache:
+    driver: local
