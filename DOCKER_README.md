@@ -239,6 +239,22 @@ For production environments:
 5. **Use secrets management** instead of .env files
 6. **Set up automated backups** for data volumes
 
+### Production Environment Structure
+
+```
+Production Server:
+├── /home/ubuntu/itzip-ai/          # Production (port 8000)
+│   ├── credentials/
+│   ├── logs/
+│   ├── data/
+│   └── .env
+└── /home/ubuntu/itzip-ai-dev/      # Development (port 8001)
+    ├── credentials/
+    ├── logs/
+    ├── data/
+    └── .env
+```
+
 ## Security Best Practices
 
 1. **Never expose credentials** in images or logs
