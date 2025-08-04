@@ -116,7 +116,7 @@ jobs:
             -v $DATA_PATH/data:/app/data \
             -v $DATA_PATH/temp:/app/temp \
             --env-file $ENV_FILE \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
           
           # Health check
           for i in {1..30}; do
