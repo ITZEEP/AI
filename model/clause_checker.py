@@ -112,8 +112,8 @@ class ContractLegalChecker:
     def _setup_vectorstore(self):
         """법령 벡터스토어 설정"""
         if not LAW_SYSTEM_AVAILABLE:
-            logger.warning("⚠️ law_system을 사용할 수 없습니다.")
-            return None
+            logger.error("❌ law_system을 사용할 수 없습니다. 법령 검토를 수행할 수 없습니다.")
+            raise RuntimeError("법령 벡터스토어를 사용할 수 없습니다. law_system이 필요합니다.")
         
         try:
             vectorstore = get_law_vectorstore()
@@ -121,11 +121,11 @@ class ContractLegalChecker:
                 logger.info("✅ 법령 벡터스토어 연결 성공")
                 return vectorstore
             else:
-                logger.warning("❌ 벡터스토어가 None입니다")
-                return None
+                logger.error("❌ 벡터스토어가 None입니다. 법령 데이터가 없습니다.")
+                raise RuntimeError("법령 벡터스토어를 초기화할 수 없습니다.")
         except Exception as e:
             logger.error(f"❌ 벡터스토어 연결 실패: {e}")
-            return None
+            raise RuntimeError(f"법령 벡터스토어 연결 실패: {e}")
     
     def _setup_retrieval_qa(self):
         """RetrievalQA 체인 설정"""
@@ -197,8 +197,10 @@ class ContractLegalChecker:
         if contract_info.monthly_rent and contract_info.monthly_rent > 0:
             # 월세 계약
             contract_parts.append("🏠 임대차 유형: 월세 계약")
-            contract_parts.append(f"보증금: {contract_info.deposit_price:,}원")
-            contract_parts.append(f"월세: {contract_info.monthly_rent:,}원")
+            if contract_info.deposit_price is not None:
+                contract_parts.append(f"보증금: {contract_info.deposit_price:,}원")
+            if contract_info.monthly_rent is not None:
+                contract_parts.append(f"월세: {contract_info.monthly_rent:,}원")
             
             # 월세의 경우 보증금 비율 계산
             if contract_info.deposit_price and contract_info.monthly_rent:
@@ -208,7 +210,8 @@ class ContractLegalChecker:
         else:
             # 전세 계약  
             contract_parts.append("🏠 임대차 유형: 전세 계약")
-            contract_parts.append(f"전세보증금: {contract_info.deposit_price:,}원")
+            if contract_info.deposit_price is not None:
+                contract_parts.append(f"전세보증금: {contract_info.deposit_price:,}원")
             
             # 전세금 수준 분석 (소액임차인 기준 등)
             if contract_info.deposit_price:
@@ -218,7 +221,7 @@ class ContractLegalChecker:
                     contract_parts.append("💡 고액 전세 (임대인 재정상태 더 중요)")
         
         # 관리비
-        if contract_info.maintenance_fee:
+        if contract_info.maintenance_fee is not None:
             contract_parts.append(f"관리비: {contract_info.maintenance_fee:,}원")
         
         # 4. 특약사항
@@ -323,7 +326,9 @@ class ContractLegalChecker:
     
     def _search_relevant_laws_for_full_contract(self, full_contract_text: str, is_jeonse: bool = True) -> List[Dict[str, Any]]:
         """전체 계약서 기반 관련 법령 검색"""
-        if not LAW_SYSTEM_AVAILABLE:
+        if not LAW_SYSTEM_AVAILABLE or not self.vectorstore:
+            # 벡터스토어가 없으면 빈 리스트 반환
+            logger.error("❌ 법령 벡터스토어를 사용할 수 없습니다.")
             return []
         
         try:

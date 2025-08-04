@@ -62,7 +62,7 @@ class ContractValidationGenerator:
             Spring 형태의 검토 결과
         """
         try:
-            logger.info(f"계약서 법령 검토 시작 - contract_id: {contract_data.get('contract_id')}")
+            logger.info(f"계약서 법령 검토 시작 - contract_id: {contract_data.get('contractId')}")
             
             # 1. Spring 데이터를 AI 모델 형태로 변환
             contract_info = self._parse_spring_contract_data(contract_data)
@@ -94,21 +94,25 @@ class ContractValidationGenerator:
     def _parse_spring_contract_data(self, spring_data: Dict[str, Any]) -> ContractInfo:
         """Spring 계약서 데이터를 AI 모델 형태로 변환"""
         try:
-            # 날짜 문자열을 datetime 객체로 변환
-            contract_date = self._parse_datetime(spring_data.get('contract_date'))
-            contract_expire_date = self._parse_datetime(spring_data.get('contract_expire_date'))
+            logger.info(f"Spring 데이터 키: {list(spring_data.keys())}")
+            logger.info(f"contractDate: {spring_data.get('contractDate')}")
+            logger.info(f"contractExpireDate: {spring_data.get('contractExpireDate')}")
+            
+            # 날짜 문자열을 datetime 객체로 변환 (camelCase 키 사용)
+            contract_date = self._parse_datetime(spring_data.get('contractDate'))
+            contract_expire_date = self._parse_datetime(spring_data.get('contractExpireDate'))
             
             return ContractInfo(
-                contract_id=spring_data.get('contract_id', 0),
-                home_id=spring_data.get('home_id', 0),
-                owner_id=spring_data.get('owner_id', 0),
-                buyer_id=spring_data.get('buyer_id', 0),
+                contract_id=spring_data.get('contractId', 0),
+                home_id=spring_data.get('homeId', 0),
+                owner_id=spring_data.get('ownerId', 0),
+                buyer_id=spring_data.get('buyerId', 0),
                 contract_date=contract_date,
                 contract_expire_date=contract_expire_date,
-                deposit_price=spring_data.get('deposit_price'),
-                monthly_rent=spring_data.get('monthly_rent'),
-                maintenance_fee=spring_data.get('maintenance_fee'),
-                special_clauses=spring_data.get('special_clauses', [])
+                deposit_price=spring_data.get('depositPrice'),
+                monthly_rent=spring_data.get('monthlyRent'),
+                maintenance_fee=spring_data.get('maintenanceFee'),
+                special_clauses=spring_data.get('specialClauses', [])
             )
             
         except Exception as e:

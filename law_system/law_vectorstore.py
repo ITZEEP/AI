@@ -12,6 +12,8 @@ import pdfplumber
 import re
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
+from config.logger_config import get_logger
+logger = get_logger(__name__)
 
 # SQLite3 버전 문제 해결을 위한 monkey patch
 try:
@@ -94,9 +96,12 @@ class LawVectorStore:
             Document 객체 리스트
         """
         documents = []
+        filename = os.path.basename(file_path)
+        logger.info(f"📄 PDF 파일 처리 시작: {filename}")
         
         with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
+            logger.info(f"   - 총 페이지 수: {len(pdf.pages)}")
+            for page_num, page in enumerate(pdf.pages):
                 page_width = page.width
                 page_height = page.height
 
@@ -135,6 +140,13 @@ class LawVectorStore:
                             "law": self._extract_law_name(file_path)
                         }
                     ))
+                    
+                    if article_title:
+                        logger.info(f"   - 페이지 {page_num + 1}: {article_title} 조항 추출됨")
+                    else:
+                        logger.info(f"   - 페이지 {page_num + 1}: 텍스트 추출됨 (조항 번호 없음)")
+        
+        logger.info(f"   ✅ {filename}에서 총 {len(documents)}개 문서 추출 완료")
         return documents
 
     def _extract_law_name(self, file_path: str) -> str:
@@ -155,14 +167,20 @@ class LawVectorStore:
         all_documents = []
 
         if not os.path.exists(directory_path):
+            logger.warning(f"⚠️ 디렉토리가 존재하지 않습니다: {directory_path}")
             return all_documents
 
-        for filename in os.listdir(directory_path):
-            if filename.endswith('.pdf'):
-                file_path = os.path.join(directory_path, filename)
-                documents = self.extract_center_text_from_pdf(file_path)
-                all_documents.extend(documents)
+        logger.info(f"📁 디렉토리 스캔 시작: {directory_path}")
+        pdf_files = [f for f in os.listdir(directory_path) if f.endswith('.pdf')]
+        logger.info(f"   - 발견된 PDF 파일 수: {len(pdf_files)}개")
+        
+        for idx, filename in enumerate(pdf_files, 1):
+            logger.info(f"\n[{idx}/{len(pdf_files)}] 처리 중...")
+            file_path = os.path.join(directory_path, filename)
+            documents = self.extract_center_text_from_pdf(file_path)
+            all_documents.extend(documents)
 
+        logger.info(f"\n✅ 전체 문서 로드 완료: 총 {len(all_documents)}개 문서")
         return all_documents
 
     def create_vectorstore(self, documents: List[Document], chunk_size: int = 1000, chunk_overlap: int = 50):
@@ -175,25 +193,36 @@ class LawVectorStore:
             chunk_overlap: 청크 겹침 크기
         """
         if not documents:
+            logger.warning("⚠️ 문서가 없어 벡터스토어를 생성할 수 없습니다.")
             return
+
+        logger.info("\n🔨 벡터스토어 생성 시작")
+        logger.info(f"   - 입력 문서 수: {len(documents)}개")
+        logger.info(f"   - 청크 크기: {chunk_size}")
+        logger.info(f"   - 청크 겹침: {chunk_overlap}")
 
         # 저장 디렉토리 생성
         os.makedirs(self.persist_directory, exist_ok=True)
+        logger.info(f"   - 저장 경로: {self.persist_directory}")
 
         # 문서 분할
+        logger.info(f"\n📝 문서 분할 중...")
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap
         )
         split_documents = text_splitter.split_documents(documents)
+        logger.info(f"   - 분할된 청크 수: {len(split_documents)}개")
 
         # 벡터 저장소 생성
+        logger.info(f"\n🚀 벡터 임베딩 생성 중... (시간이 걸릴 수 있습니다)")
         self.vectorstore = Chroma.from_documents(
             documents=split_documents,
             embedding=self.embeddings_model,
             persist_directory=self.persist_directory,
             collection_name=self.collection_name
         )
+        logger.info(f"   ✅ 벡터스토어 생성 완료!")
 
         # 처리 상태 기록
         processed_states = {}
@@ -215,6 +244,7 @@ class LawVectorStore:
                     filename, 0) + 1
 
         # 상태 저장
+        logger.info(f"\n📊 파일별 처리 통계:")
         for filename, count in file_counts.items():
             chunk_count = file_chunk_counts.get(filename, 0)
             processed_states[filename] = {
@@ -222,8 +252,10 @@ class LawVectorStore:
                 "document_count": count,
                 "chunk_count": chunk_count
             }
+            logger.info(f"   - {filename}: {count}개 문서 → {chunk_count}개 청크")
 
         self._save_processed_states(processed_states)
+        logger.info(f"\n✅ 처리 상태 저장 완료")
 
     def load_existing_vectorstore(self) -> bool:
         """
@@ -232,17 +264,31 @@ class LawVectorStore:
         Returns:
             로드 성공 여부
         """
+        logger.info(f"\n🔍 기존 벡터스토어 확인 중...")
+        logger.info(f"   - 확인 경로: {self.persist_directory}")
+        
         if os.path.exists(self.persist_directory):
             try:
+                logger.info(f"   - 벡터스토어 디렉토리 발견!")
                 self.vectorstore = Chroma(
                     embedding_function=self.embeddings_model,
                     persist_directory=self.persist_directory,
                     collection_name=self.collection_name
                 )
+                
+                # 저장된 문서 수 확인
+                try:
+                    doc_count = self.vectorstore._collection.count()
+                    logger.info(f"   ✅ 벡터스토어 로드 성공! (저장된 문서: {doc_count}개)")
+                except:
+                    logger.info(f"   ✅ 벡터스토어 로드 성공!")
+                
                 return True
-            except Exception:
+            except Exception as e:
+                logger.error(f"   ❌ 벡터스토어 로드 실패: {e}")
                 return False
         else:
+            logger.info(f"   - 기존 벡터스토어가 없습니다. 새로 생성 필요.")
             return False
 
     def search_relevant_law(self, query: str, k: int = 4) -> List[Dict[str, Any]]:
@@ -360,10 +406,15 @@ class LawVectorStore:
             chunk_overlap: 청크 겹침 크기
         """
         if not self.vectorstore:
+            logger.warning("⚠️ 벡터스토어가 로드되지 않아 새 문서를 추가할 수 없습니다.")
             return
 
         if not os.path.exists(directory_path):
+            logger.warning(f"⚠️ 디렉토리가 존재하지 않습니다: {directory_path}")
             return
+
+        logger.info(f"\n🔄 새로운 PDF 파일 확인 중...")
+        logger.info(f"   - 디렉토리: {directory_path}")
 
         # 모든 PDF 파일 찾기
         all_pdf_files = []
@@ -372,7 +423,10 @@ class LawVectorStore:
                 all_pdf_files.append(filename)
 
         if not all_pdf_files:
+            logger.info("   - PDF 파일이 없습니다.")
             return
+
+        logger.info(f"   - 전체 PDF 파일: {len(all_pdf_files)}개")
 
         # 처리 상태 로드
         processed_states = self._load_processed_states()
@@ -385,10 +439,16 @@ class LawVectorStore:
         ]
 
         if not new_files:
+            logger.info("   ✅ 모든 파일이 이미 처리되었습니다.")
             return
 
+        logger.info(f"   - 새로운 파일: {len(new_files)}개")
+        for f in new_files:
+            logger.info(f"     • {f}")
+
         # 새 파일들 처리
-        for filename in new_files:
+        for idx, filename in enumerate(new_files, 1):
+            logger.info(f"\n[{idx}/{len(new_files)}] 새 파일 추가 중...")
             file_path = os.path.join(directory_path, filename)
 
             try:
@@ -404,6 +464,7 @@ class LawVectorStore:
                     split_documents = text_splitter.split_documents(documents)
 
                     # 벡터스토어에 추가
+                    logger.info(f"   - 벡터스토어에 {len(split_documents)}개 청크 추가 중...")
                     self.vectorstore.add_documents(split_documents)
 
                     # 처리 상태 업데이트
@@ -417,9 +478,12 @@ class LawVectorStore:
 
                     # 상태 저장
                     self._save_processed_states(processed_states)
+                    logger.info(f"   ✅ {filename} 추가 완료!")
 
             except Exception as e:
-                pass
+                logger.error(f"   ❌ {filename} 처리 실패: {e}")
+
+        logger.info(f"\n✅ 새 문서 추가 완료!")
 
     def get_retriever(self, search_kwargs: Optional[Dict[str, Any]] = None):
         """
@@ -460,26 +524,51 @@ def initialize_law_vectorstore(data_directory: str = DEFAULT_DATA_DIR,
     """
     global _law_retriever
 
+    logger.info("=" * 60)
+    logger.info("🚀 법령 벡터스토어 초기화 시작")
+    logger.info("=" * 60)
+
     # LawVectorStore 인스턴스 생성 시 절대 경로 사용
     if _law_retriever is None:
+        logger.info(f"📍 새 인스턴스 생성")
+        logger.info(f"   - 데이터 디렉토리: {data_directory}")
+        logger.info(f"   - 저장 디렉토리: {persist_directory}")
         _law_retriever = LawVectorStore(persist_directory=persist_directory)
+
+    # 강제 재생성 모드
+    if force_recreate:
+        logger.info(f"🔄 강제 재생성 모드 활성화")
 
     # 기존 벡터스토어 확인
     if not force_recreate and _law_retriever.load_existing_vectorstore():
         # 추가: 이미 로드된 경우에도 새 문서가 있는지 확인하고 추가
         _law_retriever.add_new_documents(data_directory)
+        logger.info("=" * 60)
+        logger.info("✅ 법령 벡터스토어 초기화 완료 (기존 스토어 사용)")
+        logger.info("=" * 60)
         return _law_retriever
 
     # 새로 학습
+    logger.info(f"\n📚 새로운 벡터스토어 생성 중...")
     documents = _law_retriever.load_documents_from_directory(data_directory)
 
     if documents:
         _law_retriever.create_vectorstore(documents)
+        logger.info("=" * 60)
+        logger.info("✅ 법령 벡터스토어 초기화 완료 (새로 생성)")
+        logger.info("=" * 60)
         return _law_retriever
     else:
         # 벡터스토어를 새로 생성하지 못했더라도, 기존 것이 있는지 다시 한번 확인
         if _law_retriever.load_existing_vectorstore():
+            logger.info("=" * 60)
+            logger.info("✅ 법령 벡터스토어 초기화 완료 (기존 스토어 사용)")
+            logger.info("=" * 60)
             return _law_retriever
+        
+        logger.error("=" * 60)
+        logger.error("❌ 법령 벡터스토어 초기화 실패!")
+        logger.error("=" * 60)
         return None
 
 

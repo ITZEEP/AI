@@ -1,4 +1,4 @@
-# Multi-stage build for smaller image size
+# Multi-stage build for smaller image size and better caching
 FROM python:3.12-slim AS base
 
 # Set working directory
@@ -38,14 +38,17 @@ RUN apt-get update && apt-get install -y \
     # Clean up
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+# Copy only requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Upgrade pip in a separate layer
+RUN pip install --no-cache-dir --upgrade pip
 
-# Copy application code
+# Install Python dependencies in a separate layer
+# This layer is only rebuilt when requirements.txt changes
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code last to maximize cache usage
 COPY . .
 
 # Create directories for credentials and logs
@@ -70,12 +73,9 @@ RUN mkdir -p temp data/vectorstore data/law_docs
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health')"
 
-# Copy and set entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-# Use entrypoint for initialization
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+# Set environment variables for ChromaDB and warnings
+ENV CHROMA_TELEMETRY_DISABLED=true
+ENV TOKENIZERS_PARALLELISM=false
 
 # Run the application with workers
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

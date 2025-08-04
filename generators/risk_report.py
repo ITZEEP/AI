@@ -48,7 +48,8 @@ class RiskReportGenerator:
                                    spring_registry_dto: Dict[str, Any],
                                    spring_building_dto: Dict[str, Any],
                                    registered_user_name: str, 
-                                   residence_type: str) -> Dict[str, Any]:
+                                   residence_type: str,
+                                   monthly_rent: Optional[int] = None) -> Dict[str, Any]:
         """
         Spring에서 받은 데이터로 위험도 분석 후 Spring 형태로 반환
         
@@ -57,20 +58,25 @@ class RiskReportGenerator:
             user_type: 사용자 타입 ("landlord" or "tenant")
             home_id: 매물 ID
             address: 매물 주소
-            property_price: 매물 가격
+            property_price: 매물 가격 (전세: 전세금, 월세: 보증금)
             lease_type: 임대 유형 ("JEONSE" or "WOLSE")
             spring_registry_dto: Spring RegistryDocumentDto
             spring_building_dto: Spring BuildingDocumentDto
+            registered_user_name: 등록된 사용자 이름
+            residence_type: 주거 타입
+            monthly_rent: 월세 금액 (월세인 경우에만)
             
         Returns:
             Spring DetailGroup 형태의 분석 결과
         """
         try:
-            logger.info(f"Spring 위험도 분석 시작 - user_id: {user_id}, home_id: {home_id}")
+            logger.info(f"Spring 위험도 분석 시작 - user_id: {user_id}, home_id: {home_id}, lease_type: {lease_type}")
         
             # 1. Spring DTO를 AI 모델 데이터로 변환
             user_info = self._parse_user_info(user_id, user_type)
-            property_info = self._parse_property_info(home_id, address, property_price, lease_type, registered_user_name, residence_type)
+            property_info = self._parse_property_info(home_id, address, property_price, 
+                                                     lease_type, registered_user_name, 
+                                                     residence_type, monthly_rent)
             registry_data = self._parse_spring_registry_dto(spring_registry_dto)
             building_data = self._parse_spring_building_dto(spring_building_dto)
             
@@ -101,12 +107,21 @@ class RiskReportGenerator:
     
     def _parse_property_info(self, home_id: int, address: str, 
                            property_price: Optional[int], lease_type: Optional[str],
-                           registered_user_name: str, residence_type: str) -> PropertyInfo:
+                           registered_user_name: str, residence_type: str,
+                           monthly_rent: Optional[int] = None) -> PropertyInfo:
         """매물 정보 파싱"""
         
         deposit_price = None
+        monthly_rent_amount = None
+        
         if lease_type == "JEONSE":
+            # 전세인 경우: property_price가 전세금
             deposit_price = property_price
+            monthly_rent_amount = None
+        elif lease_type == "WOLSE":
+            # 월세인 경우: property_price가 보증금, monthly_rent가 월세
+            deposit_price = property_price
+            monthly_rent_amount = monthly_rent
 
         return PropertyInfo(
             home_id=home_id,
@@ -115,7 +130,7 @@ class RiskReportGenerator:
             residence_type=residence_type,
             lease_type=lease_type,
             deposit_price=deposit_price,
-            monthly_rent=None # TODO: 월세인 경우 Spring에서 월세 금액 받아야 함
+            monthly_rent=monthly_rent_amount
         )
     
     def _parse_spring_registry_dto(self, spring_dto: Dict[str, Any]) -> RegistryData:
@@ -557,7 +572,8 @@ def generate_risk_report_for_spring(user_id: int,
                                    spring_registry_dto: Dict[str, Any],
                                    spring_building_dto: Dict[str, Any],
                                    registered_user_name: str,
-                                   residence_type: str) -> Dict[str, Any]:
+                                   residence_type: str,
+                                   monthly_rent: Optional[int] = None) -> Dict[str, Any]:
     """Spring용 위험도 분석 리포트 생성 편의 함수"""
     generator = RiskReportGenerator()
     return generator.generate_spring_risk_report(
@@ -570,7 +586,8 @@ def generate_risk_report_for_spring(user_id: int,
         spring_registry_dto=spring_registry_dto,
         spring_building_dto=spring_building_dto,
         registered_user_name=registered_user_name,
-        residence_type=residence_type
+        residence_type=residence_type,
+        monthly_rent=monthly_rent
     )
 
 
