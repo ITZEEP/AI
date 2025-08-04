@@ -528,34 +528,46 @@ class BuildingInfoExtractor:
     def extract_jibun(self, lines, i, line, info):
         """지번 찾기"""
         if "지번" in line:
-            jibun_pattern = r'지번\s+([^\s]+)'
+            # 1. 같은 줄에서 지번 찾기
+            jibun_pattern = r'지번\s+((?:산\s*)?\d+(?:-\d+)?)'
             match = re.search(jibun_pattern, line)
             if match and match.group(1).strip():
                 jibun = match.group(1).strip()
                 if jibun not in ["도로명", "주소", "도로명주소"]:
                     info["지번"] = jibun
                     print(f"지번 발견: {jibun}")
-            else:
-                for k in range(i + 1, min(i + 6, len(lines))):
-                    check_line = lines[k].strip()
-
-                    if any(keyword in check_line for keyword in ["도로명", "주소"]):
-                        jibun_match = re.search(
-                            r'^([\d-]+)\s+(?:도로명|주소)', check_line)
-                        if jibun_match:
-                            jibun = jibun_match.group(1).strip()
-                            print(f"지번 발견 (패턴): {jibun}")
-                            break
-                        else:
-                            continue
-
-                    if "※" in check_line or len(check_line) > 15:
-                        continue
-
-                    if check_line and (check_line.isdigit() or re.match(r'^[\d-]+$', check_line)):
-                        info["지번"] = check_line
-                        print(f"지번 발견 (숫자): {check_line}")
-                        break
+                    return  # 찾았으면 종료
+            
+            # 2. 다음 줄들에서 지번 찾기
+            for k in range(i + 1, min(i + 6, len(lines))):
+                check_line = lines[k].strip()
+                
+                # 빈 줄은 건너뛰기
+                if not check_line:
+                    continue
+                
+                # 제외 조건
+                if "※" in check_line or "대지면적" in check_line:
+                    break
+                
+                # 2-1. 줄이 숫자로만 시작하는 경우 (345 서울특별시...)
+                start_number = re.match(r'^(\d+(?:-\d+)?)\s*', check_line)
+                if start_number:
+                    info["지번"] = start_number.group(1)
+                    print(f"지번 발견 (줄 시작): {info['지번']}")
+                    break
+                
+                # 2-2. 줄 전체가 숫자인 경우
+                if re.match(r'^[\d-]+$', check_line) and len(check_line) <= 15:
+                    info["지번"] = check_line
+                    print(f"지번 발견 (숫자): {check_line}")
+                    break
+                
+                # 2-3. 산 지번인 경우
+                if re.match(r'^산\s*\d+(?:-\d+)?$', check_line):
+                    info["지번"] = check_line
+                    print(f"지번 발견 (산): {check_line}")
+                    break
 
     def extract_road_address(self, lines, i, line, info):
         """도로명주소 찾기"""

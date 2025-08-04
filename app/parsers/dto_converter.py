@@ -16,7 +16,7 @@ class DtoConverter:
     def convert_building_to_dto(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
         """건축물대장 OCR 결과를 Spring BuildingDocumentDto 형식으로 변환"""
         return {
-            "siteLocation": ocr_result.get("대지위치", ""),
+            "siteLocation": f"{ocr_result.get('대지위치', '')} {ocr_result.get('지번', '')}",
             "roadAddress": ocr_result.get("도로명주소", ""),
             "totalFloorArea": float(ocr_result.get("연면적", 0)),
             "purpose": DtoConverter._extract_purpose(ocr_result.get("용도")),
@@ -32,7 +32,7 @@ class DtoConverter:
             return ""
         
         if isinstance(purpose_data, list):
-            return purpose_data[0] if purpose_data else ""
+            return', '.join(purpose_data) if purpose_data else ""
         
         return str(purpose_data)
     
