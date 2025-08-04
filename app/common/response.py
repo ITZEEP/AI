@@ -1,6 +1,6 @@
 from typing import Optional, Any
 from datetime import datetime, timezone, timedelta
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ErrorDetails(BaseModel):
@@ -10,8 +10,7 @@ class ErrorDetails(BaseModel):
     rejected_value: Optional[Any] = Field(None, alias="rejectedValue")
     reason: Optional[str] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ApiResponse(BaseModel):
@@ -24,12 +23,13 @@ class ApiResponse(BaseModel):
     error: Optional[ErrorDetails] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone(timedelta(hours=9))))
 
-    class Config:
-        populate_by_name = True
-        json_encoders = {
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_encoders={
             # Java LocalDateTime 형식: yyyy-MM-dd'T'HH:mm:ss
             datetime: lambda v: v.strftime('%Y-%m-%dT%H:%M:%S')
         }
+    )
 
 
 def create_success_response(
