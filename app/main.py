@@ -86,7 +86,6 @@ try:
     contract_validation_generator = ContractValidationGenerator()
     logger.info("Contract validation model loaded successfully")
     
-    from generators.clause_report import ClauseReportGenerator
     clause_report_generator = ClauseReportGenerator()
     logger.info("Clause report generator loaded successfully")
 except Exception as e:
