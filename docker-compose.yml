@@ -57,7 +57,7 @@ services:
           cpus: "0.5"
     command: >
       bash -c "
-        echo '🚀 Starting AI OCR Service with Auto-Initialization...' &&
+        echo ' Starting AI OCR Service with Auto-Initialization...' &&
         
         # Check Google Cloud credentials
         if [ -f '/app/credentials/private_key.json' ]; then

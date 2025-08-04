@@ -6,13 +6,13 @@ import sys
 import os
 import json
 import warnings
-import logging
 from typing import List, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from dotenv import load_dotenv
-logger = logging.getLogger(__name__)
+
+
 
 # deprecation warning 무시
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -32,6 +32,11 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+load_dotenv()
+from config.logger_config import get_logger
+logger = get_logger(__name__)
+
+
 
 # law_system import
 try:
@@ -42,7 +47,6 @@ except ImportError as e:
     logger.error(f"ERROR: law_system import failed: {e}")
     LAW_SYSTEM_AVAILABLE = False
 
-load_dotenv()
 
 class SafetyLevel(Enum):
     """안전도 레벨"""
@@ -69,7 +73,7 @@ class ClauseRecommendation:
 class ContractClauseAI:
     """특약 추천 및 안전도 평가 AI 시스템 """
     
-    def __init__(self, model_name: str = "gemini-1.5-pro", temperature: float = 0.3):
+    def __init__(self, model_name: str = "gemini-2.5-pro", temperature: float = 0.3):
         self.model_name = model_name
         self.temperature = temperature
         self.llm = self._setup_llm()

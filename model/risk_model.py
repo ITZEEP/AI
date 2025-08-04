@@ -361,8 +361,8 @@ class RiskAnalysisModel:
     def _setup_llm(self):
         """Gemini 1.5 Flash LLM 설정"""
         try:
-            # 환경 변수 확인
             api_key = os.getenv("GOOGLE_API_KEY")
+
             if not api_key:
                 raise ValueError("GOOGLE_API_KEY environment variable is not set")
             
@@ -376,7 +376,6 @@ class RiskAnalysisModel:
             llm = ChatGoogleGenerativeAI(
                 model=self.model_name,
                 temperature=self.temperature,
-                google_api_key=api_key
             )
             logger.info("Success: Gemini LLM initialized.")
             return llm
@@ -795,7 +794,7 @@ if __name__ == "__main__":
     
     property_info = PropertyInfo(
         home_id=1,
-        address="서울특별시 광진구 능동로 195-16",
+        address="서울특별시 송파구 신천동 29 롯데월드타워앤드롯데월드몰",
         registered_user_name="홍길동",
         residence_type="APARTMENT",
         lease_type="JEONSE",
@@ -803,8 +802,8 @@ if __name__ == "__main__":
     )
     
     registry_data = RegistryData(
-        region_address="서울특별시 광진구 군자동 98-38",  # 지번주소
-        road_address="서울특별시 광진구 능동로 195-16",     # 도로명주소
+        region_address="서울특별시 송파구 신천동 29",  # 지번주소
+        road_address="서울특별시 송파구 올림픽로 300",     # 도로명주소
         owner_name="홍길동",  # 일치
         debtor="홍길동",  # 채무자
         mortgagee_list=[
@@ -819,8 +818,8 @@ if __name__ == "__main__":
     )
     
     building_data = BuildingData(
-        site_location="서울특별시 광진구 군자동 98-38",
-        road_address="서울특별시 광진구 능동로 195-16",
+        site_location="서울특별시 송파구 신천동",
+        road_address="서울특별시 송파구 올림픽로 300 (신천동)",
         total_floor_area=84.5,
         purpose="아파트",
         floor_number=15,
@@ -857,8 +856,8 @@ if __name__ == "__main__":
             print("\n=== 주소 검증 테스트 ===")
             verifier = JusoApiAddressVerifier()
             result = verifier.verify_three_addresses(
-                "서울특별시 광진구 능동로 195-16",
-                "서울특별시 광진구 군자동 98-38", 
-                "서울특별시 광진구 능동로 195-16"
+                "서울특별시 광진구 군자동 98-38",
+                "서울특별시 광진구 능동로 195-16", 
+                "서울특별시 광진구 능동로 195-16 (군자동)"
             )
             print(f"주소 일치 결과: {result}")

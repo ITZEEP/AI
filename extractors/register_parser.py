@@ -1055,7 +1055,7 @@ if __name__ == "__main__":
     if "risk_analysis_ready" in data:
         risk_only = {"risk_analysis_ready": data["risk_analysis_ready"]}
         
-        output_dir = "../data/output/registration_json"
+        output_dir = "C:/LLM/data/output/registration_json"
         os.makedirs(output_dir, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(args.file))[0]
         output_path = os.path.join(output_dir, f"{base_name}_등기부통합.json")
