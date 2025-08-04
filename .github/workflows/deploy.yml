@@ -119,7 +119,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
           
           # Health check
-          for i in {1..30}; do
+          for i in {1..60}; do
             if curl -f http://localhost:$PORT/api/health 2>/dev/null; then
               echo "✅ Service is healthy! ($DOMAIN)"
               break
