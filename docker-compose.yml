@@ -24,14 +24,6 @@ services:
       - ./data:/app/data
       # Cache pip packages between container recreations
       - pip-cache:/root/.cache/pip
-    environment:
-      - PYTHONUNBUFFERED=1
-      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/private_key.json
-      - PORT=8000
-      - HOST=0.0.0.0
-      - PYTHONPATH=/app
-      - CHROMA_TELEMETRY_DISABLED=true
-      - TOKENIZERS_PARALLELISM=false
     env_file:
       - .env
     restart: unless-stopped
@@ -50,42 +42,45 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 950M # 시스템을 위해 50MB 남겨둠
           cpus: "1.0"
         reservations:
-          memory: 1G
+          memory: 800M # 최소 보장 메모리
           cpus: "0.5"
-    command: >
-      bash -c "
-        echo ' Starting AI OCR Service with Auto-Initialization...' &&
-        
+    # entrypoint 직접 설정
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        echo "Starting AI OCR Service..."
+
         # Check Google Cloud credentials
         if [ -f '/app/credentials/private_key.json' ]; then
-          echo 'Google Cloud credentials found'
+            echo "Google Cloud credentials found"
         else
-          echo 'Google Cloud credentials not found at /app/credentials/private_key.json'
-        fi &&
-        
+            echo "Google Cloud credentials not found at /app/credentials/private_key.json"
+        fi
+
         # Clean up old temporary files
-        find /app/temp -type f -mtime +1 -delete 2>/dev/null || true &&
-        
+        find /app/temp -type f -mtime +1 -delete 2>/dev/null || true
+
         # Initialize vectorstore if needed
-        if [ -d '/app/data/vectorstore' ] && [ -n '$$(ls -A /app/data/vectorstore 2>/dev/null)' ]; then
-          echo 'Law vectorstore already exists'
+        if [ -d '/app/data/vectorstore' ] && [ -n "$$(ls -A /app/data/vectorstore 2>/dev/null)" ]; then
+            echo "Law vectorstore already exists"
         else
-          echo 'Checking for law documents...'
-          if [ -d '/app/data/law_docs' ] && find /app/data/law_docs -name '*.pdf' -print -quit | grep -q .; then
-            echo 'Found law documents, initializing vectorstore...'
-            python init_vectorstore.py || echo 'Vectorstore initialization failed'
-          else
-            echo 'No law documents found'
-            mkdir -p /app/data/law_docs
-          fi
-        fi &&
-        
-        echo 'Environment setup completed - Starting service...' &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
-      "
+            echo "Checking for law documents..."
+            if [ -d '/app/data/law_docs' ] && find /app/data/law_docs -name '*.pdf' -print -quit | grep -q .; then
+                echo "Found law documents, initializing vectorstore..."
+                python init_vectorstore.py || echo "Vectorstore initialization failed"
+            else
+                echo "No law documents found"
+                mkdir -p /app/data/law_docs
+            fi
+        fi
+
+        echo "Starting service with $${WORKERS:-1} workers..."
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers $${WORKERS:-1} --limit-max-requests 100
     networks:
       - app-network
 

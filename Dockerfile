@@ -77,5 +77,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 ENV CHROMA_TELEMETRY_DISABLED=true
 ENV TOKENIZERS_PARALLELISM=false
 
-# Run the application with workers
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Default number of workers
+ENV WORKERS=3
+
+# Default command (can be overridden by docker-compose)
+CMD ["python", "-m", "app.main"]
