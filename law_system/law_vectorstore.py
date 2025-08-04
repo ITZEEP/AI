@@ -196,7 +196,7 @@ class LawVectorStore:
             logger.warning("⚠️ 문서가 없어 벡터스토어를 생성할 수 없습니다.")
             return
 
-        logger.info(f"\n🔨 벡터스토어 생성 시작")
+        logger.info("\n🔨 벡터스토어 생성 시작")
         logger.info(f"   - 입력 문서 수: {len(documents)}개")
         logger.info(f"   - 청크 크기: {chunk_size}")
         logger.info(f"   - 청크 겹침: {chunk_overlap}")
