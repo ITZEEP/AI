@@ -119,13 +119,13 @@ jobs:
             ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
           
           # Health check
-          for i in {1..60}; do
+          for i in {1..120}; do
             if curl -f http://localhost:$PORT/api/health 2>/dev/null; then
-              echo "✅ Service is healthy! ($DOMAIN)"
+              echo "Service is healthy! ($DOMAIN)"
               break
             fi
             if [ $i -eq 30 ]; then
-              echo "❌ Health check failed!"
+              echo "Health check failed!"
               docker logs $CONTAINER_NAME --tail 20
               exit 1
             fi
