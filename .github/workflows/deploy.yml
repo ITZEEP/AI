@@ -93,8 +93,8 @@ jobs:
           # Docker login
           echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # Run nginx setup script
-          echo "${{ secrets.NGINX_SETUP_SCRIPT }}" | bash -s -- "$DOMAIN" "$PORT"
+          # Run nginx setup script (로컬에 저장된 스크립트 실행)
+          /home/ubuntu/scripts/nginx_setup.sh "$DOMAIN" "$PORT"
           
           # Pull new image
           docker pull ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
