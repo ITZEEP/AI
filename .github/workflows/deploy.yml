@@ -17,122 +17,120 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
 
-    - name: Convert to lowercase
-      id: string
-      run: |
-        echo "IMAGE_NAME_LOWER=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-    
-    
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v2
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GHCR_TOKEN }}
-    
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: true
-        tags: ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Convert to lowercase
+        id: string
+        run: |
+          echo "IMAGE_NAME_LOWER=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
 
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    
-    steps:
 
-    - name: Convert to lowercase
-      id: string
-      run: |
-        echo "IMAGE_NAME_LOWER=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-    
-    - name: Set environment variables
-      id: vars
-      run: |
-        if [ "${{ github.ref_name }}" = "main" ]; then
-          echo "port=8000" >> $GITHUB_OUTPUT
-          echo "container_name=itzip-ai-prod" >> $GITHUB_OUTPUT
-          echo "env_file=/home/ubuntu/itzip-ai/.env" >> $GITHUB_OUTPUT
-          echo "data_path=/home/ubuntu/itzip-ai" >> $GITHUB_OUTPUT
-        else
-          echo "port=8001" >> $GITHUB_OUTPUT
-          echo "container_name=itzip-ai-dev" >> $GITHUB_OUTPUT
-          echo "env_file=/home/ubuntu/itzip-ai-dev/.env" >> $GITHUB_OUTPUT
-          echo "data_path=/home/ubuntu/itzip-ai-dev" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@v0.1.5
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          # Set environment variables
+    steps:
+      - name: Convert to lowercase
+        id: string
+        run: |
+          echo "IMAGE_NAME_LOWER=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set environment variables
+        id: vars
+        run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
-            DOMAIN="ai.ariogi.kr"
-            PORT=8000
-            CONTAINER_NAME="itzip-ai-prod"
-            DATA_PATH="/home/ubuntu/itzip-ai"
-            ENV_FILE="/home/ubuntu/itzip-ai/.env"
+            echo "port=8000" >> $GITHUB_OUTPUT
+            echo "container_name=itzip-ai-prod" >> $GITHUB_OUTPUT
+            echo "env_file=/home/ubuntu/itzip-ai/.env" >> $GITHUB_OUTPUT
+            echo "data_path=/home/ubuntu/itzip-ai" >> $GITHUB_OUTPUT
           else
-            DOMAIN="ai.dev.ariogi.kr"
-            PORT=8001
-            CONTAINER_NAME="itzip-ai-dev"
-            DATA_PATH="/home/ubuntu/itzip-ai-dev"
-            ENV_FILE="/home/ubuntu/itzip-ai-dev/.env"
+            echo "port=8001" >> $GITHUB_OUTPUT
+            echo "container_name=itzip-ai-dev" >> $GITHUB_OUTPUT
+            echo "env_file=/home/ubuntu/itzip-ai-dev/.env" >> $GITHUB_OUTPUT
+            echo "data_path=/home/ubuntu/itzip-ai-dev" >> $GITHUB_OUTPUT
           fi
-          
-          # Docker login
-          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          
-          # Run nginx setup script (로컬에 저장된 스크립트 실행)
-          /home/ubuntu/scripts/nginx_setup.sh "$DOMAIN" "$PORT"
-          
-          # Pull new image
-          docker pull ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
-          
-          # Stop and remove old container
-          docker stop $CONTAINER_NAME || true
-          docker rm $CONTAINER_NAME || true
-          
-          # Create directories if not exist
-          mkdir -p $DATA_PATH/{credentials,logs,data,temp}
-          
-          # Run new container
-          docker run -d \
-            --name $CONTAINER_NAME \
-            --restart unless-stopped \
-            -p $PORT:8000 \
-            -v $DATA_PATH/credentials:/app/credentials:ro \
-            -v $DATA_PATH/logs:/app/logs \
-            -v $DATA_PATH/data:/app/data \
-            -v $DATA_PATH/temp:/app/temp \
-            --env-file $ENV_FILE \
-            ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
-          
-          # Health check
-          for i in {1..120}; do
-            if curl -f http://localhost:$PORT/api/health 2>/dev/null; then
-              echo "Service is healthy! ($DOMAIN)"
-              break
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Set environment variables
+            if [ "${{ github.ref_name }}" = "main" ]; then
+              DOMAIN="ai.ariogi.kr"
+              PORT=8000
+              CONTAINER_NAME="itzip-ai-prod"
+              DATA_PATH="/home/ubuntu/itzip-ai"
+              ENV_FILE="/home/ubuntu/itzip-ai/.env"
+            else
+              DOMAIN="ai.dev.ariogi.kr"
+              PORT=8001
+              CONTAINER_NAME="itzip-ai-dev"
+              DATA_PATH="/home/ubuntu/itzip-ai-dev"
+              ENV_FILE="/home/ubuntu/itzip-ai-dev/.env"
             fi
-            if [ $i -eq 30 ]; then
-              echo "Health check failed!"
-              docker logs $CONTAINER_NAME --tail 20
-              exit 1
-            fi
-            sleep 2
-          done
-          
-          # Cleanup
-          docker image prune -f
-          
-          echo "🎉 Deployment completed: $DOMAIN → localhost:$PORT"
+
+            # Docker login
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Run nginx setup script (로컬에 저장된 스크립트 실행)
+            /home/ubuntu/scripts/nginx_setup.sh "$DOMAIN" "$PORT"
+
+            # Pull new image
+            docker pull ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
+
+            # Stop and remove old container
+            docker stop $CONTAINER_NAME || true
+            docker rm $CONTAINER_NAME || true
+
+            # Create directories if not exist
+            mkdir -p $DATA_PATH/{credentials,logs,data,temp}
+
+            # Run new container
+            docker run -d \
+              --name $CONTAINER_NAME \
+              --restart unless-stopped \
+              -p $PORT:8000 \
+              -v $DATA_PATH/credentials:/app/credentials:ro \
+              -v $DATA_PATH/logs:/app/logs \
+              -v $DATA_PATH/data:/app/data \
+              -v $DATA_PATH/temp:/app/temp \
+              --env-file $ENV_FILE \
+              ${{ env.REGISTRY }}/${{ steps.string.outputs.IMAGE_NAME_LOWER }}:${{ github.ref_name }}
+
+            # Health check
+            for i in {1..180}; do
+              if curl -f http://localhost:$PORT/api/health 2>/dev/null; then
+                echo "Service is healthy! ($DOMAIN)"
+                break
+              fi
+              if [ $i -eq 180 ]; then
+                echo "Health check failed!"
+                docker logs $CONTAINER_NAME --tail 20
+                exit 1
+              fi
+              sleep 2
+            done
+
+            # Cleanup
+            docker image prune -f
+
+            echo "🎉 Deployment completed: $DOMAIN → localhost:$PORT"

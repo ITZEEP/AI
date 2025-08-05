@@ -28,6 +28,7 @@ from app.parsers.dto_converter import DtoConverter
 from generators.risk_report import RiskReportGenerator
 from generators.contract_report import ContractValidationGenerator
 from generators.clause_report import ClauseReportGenerator
+from generators.improve_report import ClauseImprovementController
 
 # 로거 설정
 logger = get_logger(__name__)
@@ -53,6 +54,10 @@ app = FastAPI(
         {
             "name": "위험도 분석", 
             "description": "부동산 사기 위험도 종합 분석"
+        },
+        {
+            "name": "특약 추천",
+            "description": "AI 기반 특약 추천 및 개선"
         }
     ]
 )
@@ -73,6 +78,7 @@ building_extractor = BuildingInfoExtractor()
 risk_report_generator = None
 contract_validation_generator = None
 clause_report_generator = None
+clause_improvement_controller = None
 try:
     # 환경 변수 확인
     if not os.getenv("GOOGLE_API_KEY"):
@@ -88,6 +94,9 @@ try:
     
     clause_report_generator = ClauseReportGenerator()
     logger.info("Clause report generator loaded successfully")
+    
+    clause_improvement_controller = ClauseImprovementController()
+    logger.info("Clause improvement controller loaded successfully")
 except Exception as e:
     logger.error(f"Failed to load AI models: {e}")
     logger.error("Please check your environment variables and dependencies")
@@ -380,6 +389,97 @@ class ClauseRecommendationRequest(BaseModel):
     )
 
 
+class ClauseHistoryData(BaseModel):
+    """특약 히스토리 데이터"""
+    title: str = Field(..., description="특약 제목", example="반려동물 사육 관련 특약")
+    content: str = Field(..., description="특약 내용", example="임차인은 반려동물 사육을 금지한다.")
+    messages: str = Field(..., description="대화 내용", example="임대인: 반려동물은 절대 안 됩니다.\n임차인: 소형견 1마리만 키우고 싶어요.")
+    
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ClauseImprovementRequest(BaseModel):
+    """특약 개선 요청 모델"""
+    contract_chat_id: int = Field(..., alias="contractChatId", description="계약 채팅방 ID", example=3039)
+    order: int = Field(..., description="특약 번호", example=1)
+    round: int = Field(..., description="개선 라운드", example=3)
+    prev_data: List[ClauseHistoryData] = Field(..., alias="prevData", description="이전 특약 히스토리")
+    recent_data: ClauseHistoryData = Field(..., alias="recentData", description="최근 특약 데이터")
+    owner_data: Optional[OwnerPrecheckDto] = Field(None, alias="ownerData", description="임대인 사전조사 정보")
+    tenant_data: Optional[TenantPrecheckDto] = Field(None, alias="tenantData", description="임차인 사전조사 정보")
+    ocr_data: Optional[OcrResultDto] = Field(None, alias="ocrData", description="OCR 결과 (선택사항)")
+    
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
+            "example": {
+                "contractChatId": 3039,
+                "order": 1,
+                "round": 2,
+                "prevData": [
+                    {
+                        "title": "반려동물 사육 관련 특약",
+                        "content": "임차인은 반려동물 사육을 금지한다.",
+                        "messages": "임대인: 반려동물은 절대 안 됩니다.\n임차인: 소형견 1마리만 키우고 싶어요."
+                    }
+                ],
+                "recentData": {
+                    "title": "반려동물 사육 제한 특약",
+                    "content": "임차인은 소형견(10kg 이하) 1마리에 한해 사육할 수 있으며, 별도 보증금 50만원을 납부한다.",
+                    "messages": "임차인: 보증금이 너무 비싸요. 깨끗하게 사용할게요.\n임대인: 그럼 30만원으로 줄여드릴게요."
+                },
+                "ownerData": {
+                    "ownerPrecheckId": 1002,
+                    "contractChatId": 3039,
+                    "identityId": 2002,
+                    "rentType": "JEONSE",
+                    "isMortgaged": False,
+                    "contractDuration": "2YEAR",
+                    "renewalIntent": "YES",
+                    "responseRepairingFixtures": "OWNER",
+                    "hasConditionLog": True,
+                    "hasPenalty": False,
+                    "hasPriorityForExtension": True,
+                    "hasAutoPriceAdjustment": False,
+                    "requireRentGuaranteeInsurance": True,
+                    "insuranceBurden": "PARTIAL",
+                    "hasNotice": "NO",
+                    "checkedAt": "2025-07-30T15:20:30",
+                    "ownerBankName": "카카오뱅크",
+                    "ownerAccountNumber": "3333-12-3456789",
+                    "restoreCategories": [
+                        {"restoreCategoryId": 1, "restoreCategoryName": "벽지"}
+                    ],
+                    "jeonseInfo": {"allowJeonseRightRegistration": True}
+                },
+                "tenantData": {
+                    "contractChatId": 3039,
+                    "rentType": "JEONSE",
+                    "loanPlan": True,
+                    "insurancePlan": True,
+                    "expectedMoveInDate": "2025-08-15",
+                    "contractDuration": "YEAR_2",
+                    "renewalIntent": "YES",
+                    "facilityRepairNeeded": False,
+                    "interiorCleaningNeeded": True,
+                    "applianceInstallationPlan": True,
+                    "hasPet": True,
+                    "petInfo": "강아지",
+                    "petCount": 1,
+                    "indoorSmokingPlan": False,
+                    "earlyTerminationRisk": False,
+                    "requestToOwner": "반려동물과 함께 깨끗하게 거주하고 싶습니다.",
+                    "checkedAt": "2025-08-05T10:30:00",
+                    "residentCount": 2,
+                    "occupation": "회사원",
+                    "emergencyContact": "010-1234-5678",
+                    "relation": "배우자"
+                }
+            }
+        }
+    )
+
+
 @app.get("/", 
          summary="API 정보",
          description="API 서비스 정보 및 사용 가능한 엔드포인트 목록을 제공합니다.",
@@ -396,7 +496,9 @@ async def root():
             "parse_building": "/api/parse/building",
             "parse_contract": "/api/parse/contract",
             "analyze_risk": "/api/analyze/risk",
-            "validate_contract": "/api/contract/validate"
+            "validate_contract": "/api/contract/validate",
+            "recommend_clauses": "/api/clause/recommend",
+            "improve_clause": "/api/clause/improve"
         }
     }
     return ApiResponse.success(data=data)
@@ -973,6 +1075,147 @@ async def recommend_clauses(request: ClauseRecommendationRequest):
         logger.error(traceback.format_exc())
         return ApiResponse.error(
             message="특약 추천 중 예상치 못한 오류가 발생했습니다.",
+            code="INTERNAL_ERROR"
+        )
+
+
+@app.post("/api/clause/improve",
+          summary="특약 개선",
+          description="""임대인과 임차인의 대화 내용을 기반으로 특약을 개선합니다.
+
+주요 기능:
+- 대화 내용 분석을 통한 양측 요구사항 파악
+- 이전 특약 히스토리를 고려한 점진적 개선
+- 법령 기반 공정하고 균형잡힌 특약 생성
+- 구체적이고 실행 가능한 조건으로 수정
+- 각 당사자 입장에서의 영향 평가
+
+개선 프로세스:
+1. 이전 특약 히스토리 분석
+2. 최근 대화 내용에서 요구사항 추출
+3. 관련 법령 검토 및 적용
+4. 균형잡힌 절충안 도출
+5. 양측 영향 평가
+
+평가 기준:
+- **안심**: 해당 당사자에게 유리하거나 공정한 특약
+- **주의**: 해당 당사자에게 불리하거나 위험할 수 있는 특약""",
+          tags=["특약 추천"],
+          response_model=ApiResponse,
+          responses={
+              200: {
+                  "description": "특약 개선 성공",
+                  "content": {
+                      "application/json": {
+                          "examples": {
+                              "반려동물 특약 개선 예시": {
+                                  "value": {
+                                      "success": True,
+                                      "message": "특약 개선이 완료되었습니다.",
+                                      "data": {
+                                          "round": 3,
+                                          "order": 1,
+                                          "title": "반려동물 사육 및 청소 조건 특약",
+                                          "content": "임차인은 소형견(10kg 이하) 1마리 사육 가능하며, 별도 보증금 30만원을 납부합니다. 퇴거 시 전문업체 털 제거 청소(견적가 10만원 이내)를 실시하고, 그 외 일반 청소는 임차인이 직접 수행합니다.",
+                                          "assessment": {
+                                              "owner": {
+                                                  "level": "안심",
+                                                  "reason": "별도 보증금과 명확한 청소 기준으로 재산 보호가 가능하며, 전문업체 청소 비용도 합리적인 수준으로 제한되어 있습니다."
+                                              },
+                                              "tenant": {
+                                                  "level": "안심",
+                                                  "reason": "반려동물 사육이 허용되고 청소 비용이 명확히 한정되어 있어 예상치 못한 부담이 없습니다. 보증금도 합리적인 수준입니다."
+                                              }
+                                          }
+                                      },
+                                      "error": None,
+                                      "timestamp": "2024-01-01T12:00:00"
+                                  }
+                              }
+                          }
+                      }
+                  }
+              },
+              400: {
+                  "description": "잘못된 요청",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "success": False,
+                              "message": "특약 개선 처리 중 오류가 발생했습니다.",
+                              "data": None,
+                              "error": {
+                                  "code": "INVALID_REQUEST",
+                                  "field": "round",
+                                  "rejectedValue": 0,
+                                  "reason": "라운드는 1 이상이어야 합니다."
+                              },
+                              "timestamp": "2024-01-01T12:00:00"
+                          }
+                      }
+                  }
+              }
+          })
+async def improve_clause(request: ClauseImprovementRequest):
+    """특약 개선 API
+    
+    임대인과 임차인의 대화 내용을 분석하여 특약을 개선하고
+    각 당사자에게 미치는 영향을 평가합니다.
+    """
+    try:
+        logger.info(f"특약 개선 API 호출 - 계약ID: {request.contract_chat_id}, 라운드: {request.round}, 특약번호: {request.order}")
+        
+        # Request 데이터를 Dict로 변환 (ClauseImprovementController 입력 형식)
+        request_data = {
+            "contractChatId": request.contract_chat_id,
+            "order": request.order,
+            "round": request.round,
+            "prevData": [
+                {
+                    "title": prev.title,
+                    "content": prev.content,
+                    "messages": prev.messages
+                } for prev in request.prev_data
+            ],
+            "recentData": {
+                "title": request.recent_data.title,
+                "content": request.recent_data.content,
+                "messages": request.recent_data.messages
+            }
+        }
+        
+        # 사전조사 데이터 추가 (있는 경우)
+        if request.owner_data:
+            request_data["ownerData"] = request.owner_data.model_dump(by_alias=True)
+        if request.tenant_data:
+            request_data["tenantData"] = request.tenant_data.model_dump(by_alias=True)
+        if request.ocr_data:
+            request_data["ocrData"] = request.ocr_data.model_dump(by_alias=True)
+        
+        # 특약 개선 프로세스 실행
+        result = clause_improvement_controller.process_clause_improvement(request_data)
+        
+        # 결과 확인 및 응답
+        if result and result.get("round"):
+            logger.info(f"특약 개선 성공 - 라운드: {result.get('round')}, 특약번호: {result.get('order')}")
+            return ApiResponse.success(
+                data=result,
+                message="특약 개선이 완료되었습니다."
+            )
+        else:
+            # 에러 응답 처리
+            error_message = result.get("message", "특약 개선에 실패했습니다.") if result else "특약 개선에 실패했습니다."
+            logger.error(f"특약 개선 실패: {error_message}")
+            return ApiResponse.error(
+                message=error_message,
+                code="CLAUSE_IMPROVEMENT_ERROR"
+            )
+            
+    except Exception as e:
+        logger.error(f"특약 개선 API 오류: {str(e)}")
+        logger.error(traceback.format_exc())
+        return ApiResponse.error(
+            message="특약 개선 중 예상치 못한 오류가 발생했습니다.",
             code="INTERNAL_ERROR"
         )
 
