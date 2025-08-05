@@ -474,6 +474,16 @@ class ClauseImprovementRequest(BaseModel):
                     "occupation": "회사원",
                     "emergencyContact": "010-1234-5678",
                     "relation": "배우자"
+                },
+                "ocrData": {
+                    "fileName": "20250725_contract.pdf",
+                    "extractedAt": "2025-07-25T14:46:57.138249",
+                    "source": "text",
+                    "specialTerms": [
+                        "임차인은 계약 종료 시 임차목적물을 원상회복하여 임대인에게 반환하여야 한다.",
+                        "월 임대료는 매월 5일까지 임대인이 지정한 계좌로 입금하여야 한다."
+                    ],
+                    "rawText": "부동산 임대차 계약서..."
                 }
             }
         }
