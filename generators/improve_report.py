@@ -108,6 +108,9 @@ class ClauseImprovementParser:
 - 특약 번호: {request.order}번
 - 개선 라운드: {request.round}라운드
 """
+        # 파서 인스턴스를 한 번만 생성
+        parser = ClauseDataParser() if ClauseDataParser is not None else None
+        
         
         # 사전조사 정보 추가 (clause_report 모듈 활용)
         if request.owner_data or request.tenant_data:
@@ -115,7 +118,7 @@ class ClauseImprovementParser:
             
             if request.owner_data:
                 try:
-                    if ClauseDataParser is None:
+                    if parser is None:
                         context += "- 임대인 사전조사 정보: 파서 모듈 없음\n"
                     else:
                         parser = ClauseDataParser()
@@ -128,7 +131,7 @@ class ClauseImprovementParser:
             
             if request.tenant_data:
                 try:
-                    if ClauseDataParser is None:
+                    if parser is None:
                         context += "- 임차인 사전조사 정보: 파서 모듈 없음\n"
                     else:
                         parser = ClauseDataParser()
@@ -142,7 +145,7 @@ class ClauseImprovementParser:
             # OCR 정보 추가
             if request.ocr_data:
                 try:
-                    if ClauseDataParser is None:
+                    if parser is None:
                         context += "- OCR 정보: 파서 모듈 없음\n"
                     else:
                         parser = ClauseDataParser()
