@@ -18,7 +18,7 @@ from config.logger_config import get_logger
 logger = get_logger(__name__)
 
 try:
-    from clause_report import ClauseDataParser
+    from generators.clause_report import ClauseDataParser
 except ImportError as e:
     logger.warning(f"clause_report import failed: {e}")
     ClauseDataParser = None
