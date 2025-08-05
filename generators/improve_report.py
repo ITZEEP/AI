@@ -11,13 +11,18 @@ import json
 import sys
 import os
 from enum import Enum
-from clause_report import ClauseDataParser
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from config.logger_config import get_logger
 logger = get_logger(__name__)
- 
+
+try:
+    from clause_report import ClauseDataParser
+except ImportError as e:
+    logger.warning(f"clause_report import failed: {e}")
+    ClauseDataParser = None
+
 class AssessmentLevel(Enum):
     SAFE = "안심"
     CAUTION = "주의"
@@ -181,7 +186,7 @@ class ClauseImprovementParser:
 당시 대화: {prev.messages}
 """
             
-            context += f"""
+            context += """
 # 개선 목표: 사전조사 정보와 히스토리를 참고하여 현재 특약을 최근 대화 내용에 맞게 추가 개선해주세요.
 """
         
