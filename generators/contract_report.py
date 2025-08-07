@@ -30,7 +30,7 @@ class ViolationType(Enum):
 
 @dataclass
 class ContractBasicInfo:
-    """계약서 기본 정보 (Spring에서 전달받는 데이터)"""
+    """계약서 기본 정보)"""
     contract_chat_id: int
     # 제1조 계약 당사자
     owner_name: str
@@ -85,14 +85,14 @@ class LegalViolation:
 
 @dataclass
 class ValidationResult:
-    """적법성 검사 결과 (간소화)"""
+    """적법성 검사 결과"""
     success: bool
     contract_chat_id: int
     validation_status: str      # "LEGAL", "CAUTION", "VIOLATION", "ERROR"
     total_violations: int
     violations: List[LegalViolation]
     validated_at: str
-    recommendation: str
+
 
 class ContractDataParser:
     """계약서 데이터 파싱 유틸리티"""
@@ -278,7 +278,7 @@ class ContractValidationGenerator:
     
     @staticmethod
     def _analyze_contract_legality(contract_text: str, basic_info: ContractBasicInfo) -> List[LegalViolation]:
-        """계약서 적법성 분석 (실제 AI 모델 호출)"""
+        """계약서 적법성 분석"""
         try:
             # clause_checker의 간단한 분석 함수 사용
             from model.clause_checker import analyze_contract_text_for_report
@@ -313,7 +313,7 @@ class ContractValidationGenerator:
     def _convert_to_spring_format(violations: List[LegalViolation], 
                                 basic_info: ContractBasicInfo,
                                 clauses_data: ClausesData) -> Dict[str, Any]:
-        """검사 결과를 Spring 형태로 변환 - 위반사항만 간단하게"""
+        """검사 결과를 Spring 형태로 변환"""
         
         # 전체 상태 판정
         illegal_count = len([v for v in violations if v.violation_type == ViolationType.ILLEGAL])
@@ -340,7 +340,7 @@ class ContractValidationGenerator:
             })
         
         
-        # 🆕 심플한 Spring 형태 JSON 구조 - 위반사항만!
+        # 심플한 Spring 형태 JSON 구조 
         return {
             "success": True,
             "contract_chat_id": basic_info.contract_chat_id,
@@ -362,7 +362,6 @@ class ContractValidationGenerator:
             "total_violations": 0,
             "violations": [],
             "validated_at": datetime.now().isoformat(),
-            "recommendation": "시스템 오류로 인해 법령 검토를 완료할 수 없습니다. 전문가 상담을 권장드립니다."
         }
 
 
@@ -374,68 +373,61 @@ def validate_contract_with_clauses_for_spring(clauses_data: Dict[str, Any],
 
 
 # 사용 예제
-if __name__ == "__main__":
-    print("\n=== 계약서 적법성 검사 Spring 연동 테스트 ===")
+# if __name__ == "__main__":
+#     print("\n=== 계약서 적법성 검사 Spring 연동 테스트 ===")
     
-    # 테스트용 AI 생성 특약 데이터
-    test_clauses_data = {
-        "success": True,
-        "message": "특약 생성 및 평가 완료",
-        "timestamp": "2025-08-04T13:15:02.706857",
-        "data": {
-            "total_clauses": 3,
-            "clauses": [
-                {
-                    "order": 1,
-                    "title": "근저당권 감액 조건부 계약",
-                    "content": "임대인은 잔금 지급일까지 본 부동산에 설정된 근저당권을 감액 등기한다."
-                },
-                {
-                    "order": 2,
-                    "title": "임대인 임의 해지",
-                    "content": "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다."  # 위반 조항
-                },
-                {
-                    "order": 3,
-                    "title": "전세보증금 반환보증보험",
-                    "content": "임대인은 임차인의 전세보증금 반환보증보험 가입에 협조한다."
-                }
-            ]
-        }
-    }
+#     # 테스트용 AI 생성 특약 데이터
+#     test_clauses_data = {
+#         "success": True,
+#         "message": "특약 생성 및 평가 완료",
+#         "timestamp": "2025-08-04T13:15:02.706857",
+#         "data": {
+#             "total_clauses": 3,
+#             "clauses": [
+#                 {
+#                     "order": 1,
+#                     "title": "근저당권 감액 조건부 계약",
+#                     "content": "임대인은 잔금 지급일까지 본 부동산에 설정된 근저당권을 감액 등기한다."
+#                 },
+#                 {
+#                     "order": 2,
+#                     "title": "임대인 임의 해지",
+#                     "content": "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다."  # 위반 조항
+#                 },
+#                 {
+#                     "order": 3,
+#                     "title": "전세보증금 반환보증보험",
+#                     "content": "임대인은 임차인의 전세보증금 반환보증보험 가입에 협조한다."
+#                 }
+#             ]
+#         }
+#     }
     
-    # 테스트용 계약서 기본 정보
-    test_contract_basic_info = {
-        "contractChatId": 1234,
-        "ownerName": "홍길동",
-        "ownerAddr": "서울특별시 강남구 논현동 123-4",
-        "ownerPhoneNum": "01012345678",
-        "buyerName": "김영희", 
-        "buyerAddr": "서울특별시 마포구 서교동 56-7",
-        "buyerPhoneNum": "01098765432",
-        "homeAddr1": "서울특별시 용산구 이촌동",
-        "homeAddr2": "이촌로 123, 101동 202호",
-        "residenceType": "아파트",
-        "exclusiveArea": 84.5,
-        "homeFloor": 2,
-        "contractStartDate": "2025-09-01",
-        "contractEndDate": "2027-08-31",
-        "depositPrice": 100000000,
-        "monthlyRent": 0,  # 전세
-        "maintenanceFee": 120000
-    }
+#     # 테스트용 계약서 기본 정보
+#     test_contract_basic_info = {
+#         "contractChatId": 1234,
+#         "ownerName": "홍길동",
+#         "ownerAddr": "서울특별시 강남구 논현동 123-4",
+#         "ownerPhoneNum": "01012345678",
+#         "buyerName": "김영희", 
+#         "buyerAddr": "서울특별시 마포구 서교동 56-7",
+#         "buyerPhoneNum": "01098765432",
+#         "homeAddr1": "서울특별시 용산구 이촌동",
+#         "homeAddr2": "이촌로 123, 101동 202호",
+#         "residenceType": "아파트",
+#         "exclusiveArea": 84.5,
+#         "homeFloor": 2,
+#         "contractStartDate": "2025-09-01",
+#         "contractEndDate": "2027-08-31",
+#         "depositPrice": 100000000,
+#         "monthlyRent": 0,  # 전세
+#         "maintenanceFee": 120000
+#     }
     
-    # 적법성 검사 실행
-    print("🔍 계약서 적법성 검사 실행 중...")
-    result = validate_contract_with_clauses_for_spring(test_clauses_data, test_contract_basic_info)
+#     # 적법성 검사 실행
+#     result = validate_contract_with_clauses_for_spring(test_clauses_data, test_contract_basic_info)
     
-    print(f"✅ 검토 상태: {result.get('validation_status', 'UNKNOWN')}")
-    print(f"📊 총 위반사항: {result.get('total_violations', 0)}건")
-    print(f"💡 권고사항: {result.get('recommendation', '정보 없음')}")
-    
-    print("\n🎉 테스트 완료!")
-    print("💡 개선사항:")
-    print("   ✅ 심플한 JSON 구조 - 위반사항만!")
-    print("   ✅ summary, contract_info 제거로 간소화")
-    print("   ✅ Spring에서 필요한 핵심 정보만 전달")
-    print("   ✅ 예쁘게 포맷된 JSON 출력으로 확인 가능")
+#     # JSON 형태로 예쁘게 출력
+#     print("\n📄 JSON 형식 결과 출력")
+#     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+#     print(json.dumps(result, indent=2, ensure_ascii=False))

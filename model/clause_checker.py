@@ -51,9 +51,9 @@ class ViolationType(str, Enum):
 
 
 class ContractLegalChecker:
-    """계약서 적법성 검사 AI 시스템 (원래 프롬프트 완전 적용)"""
+    """계약서 적법성 검사 AI 시스템"""
     
-    def __init__(self, model_name: str = "gemini-2.5-pro", temperature: float = 0.1):
+    def __init__(self, model_name: str = "gemini-2.5-pro", temperature: float = 0.07):
         """
         Args:
             model_name: 사용할 LLM 모델명
@@ -97,7 +97,7 @@ class ContractLegalChecker:
         
     def analyze_contract_text(self, contract_text: str, is_jeonse: bool = True) -> List[Dict[str, Any]]:
         """
-        계약서 전체 텍스트 적법성 검사 (원래 코드의 정교한 로직)
+        계약서 전체 텍스트 적법성 검사
         
         Args:
             contract_text: 계약서 전체 텍스트
@@ -107,13 +107,13 @@ class ContractLegalChecker:
             List[Dict]: 위반사항 딕셔너리 리스트
         """
         try:
-            logger.info("계약서 텍스트 적법성 검사 시작 (정교한 프롬프트)")
+            logger.info("계약서 텍스트 적법성 검사 시작")
             
-            # 1. 관련 법령 검색 (원래 코드의 정교한 로직)
+            # 1. 관련 법령 검색
             relevant_laws = self._search_relevant_laws_for_full_contract(contract_text, is_jeonse)
             laws_context = self._format_laws_context(relevant_laws)
             
-            # 2. LLM으로 전체 계약서 종합 분석 (원래 프롬프트)
+            # 2. LLM으로 전체 계약서 종합 분석
             violations = self._analyze_full_contract_with_llm(contract_text, is_jeonse, laws_context)
             
             logger.info(f"적법성 검사 완료 - 총 {len(violations)}건 문제 발견")
@@ -124,7 +124,7 @@ class ContractLegalChecker:
             return []
     
     def _search_relevant_laws_for_full_contract(self, contract_text: str, is_jeonse: bool) -> List[Dict[str, Any]]:
-        """전체 계약서 기반 관련 법령 검색 (원래 코드 완전 복원)"""
+        """전체 계약서 기반 관련 법령 검색"""
         if not self.vectorstore:
             return []
         
@@ -167,7 +167,6 @@ class ContractLegalChecker:
             for query in comprehensive_queries:
                 laws = search_law(query, k=8)  # 각 카테고리마다 8개씩
                 all_laws.extend(laws)
-                logger.info(f"포괄적 검색 '{query}': {len(laws)}개 법령 수집")
             
             #  2. 전세/월세 특화 법령
             if is_jeonse:
@@ -219,7 +218,6 @@ class ContractLegalChecker:
             for query in specific_queries:
                 laws = search_law(query, k=4)
                 all_laws.extend(laws)
-                logger.info(f"특정 내용 검색 '{query}': {len(laws)}개 법령 수집")
             
             #  4. 중복 제거 및 법령 다양성 확보
             unique_laws = self._remove_duplicate_laws(all_laws)
@@ -229,10 +227,7 @@ class ContractLegalChecker:
             for law in unique_laws:
                 source = law.get('law_name', '기타')
                 law_sources[source] = law_sources.get(source, 0) + 1
-            
-            logger.info(f"수집된 법령 소스별 분포: {law_sources}")
-            logger.info(f"총 수집된 법령: {len(all_laws)}개 → 중복 제거 후: {len(unique_laws)}개")
-            
+                      
             return unique_laws[:80]  # 더 많은 법령 활용 (80개까지)
             
         except Exception as e:
@@ -254,9 +249,9 @@ class ContractLegalChecker:
         return unique_laws
     
     def _analyze_full_contract_with_llm(self, full_contract_text: str, is_jeonse: bool, laws_context: str) -> List[Dict[str, Any]]:
-        """LLM으로 전체 계약서 종합 분석 - 원래 프롬프트 완전 적용"""
+        """LLM으로 전체 계약서 종합 분석"""
         
-        # 전세/월세 특성을 반영한 프롬프트 (원래 코드 완전 복원)
+        # 전세/월세 특성을 반영한 프롬프트
         contract_type_guidance = ""
         
         if is_jeonse:
@@ -278,7 +273,7 @@ class ContractLegalChecker:
 - 월세 선납 조건의 합리성
 """
         
-        # 개선된 전체 계약서 분석 프롬프트 (원래 코드 완전 복원)
+        # 개선된 전체 계약서 분석 프롬프트
         prompt = PromptTemplate.from_template("""
 당신은 부동산 임대차 법률 전문가입니다. 다음 **전체 계약서**를 종합적으로 검토해주세요.
 
@@ -345,7 +340,7 @@ class ContractLegalChecker:
             return []
     
     def _format_laws_context(self, laws: List[Dict[str, Any]]) -> str:
-        """법령 정보를 컨텍스트로 포맷팅 (원래 코드)"""
+        """법령 정보를 컨텍스트로 포맷팅"""
         if not laws:
             return "관련 법령 정보가 없습니다."
         
@@ -360,7 +355,7 @@ class ContractLegalChecker:
         return "\n".join(formatted)
     
     def _parse_contract_analysis_result(self, llm_result: str) -> List[Dict[str, Any]]:
-        """전체 계약서 LLM 분석 결과 파싱 (원래 코드)"""
+        """전체 계약서 LLM 분석 결과 파싱"""
         try:
             logger.info("전체 계약서 분석 결과 파싱 시작")
             
@@ -393,7 +388,7 @@ class ContractLegalChecker:
             return []
     
     def _parse_single_violation_block(self, violation_content: str) -> Optional[Dict[str, Any]]:
-        """개별 위반사항 블록 파싱 (원래 코드)"""
+        """개별 위반사항 블록 파싱"""
         try:
             result_data = {}
             
@@ -442,7 +437,7 @@ _contract_checker = None
 
 
 def get_contract_legal_checker() -> ContractLegalChecker:
-    """계약서 검토기 반환 (싱글톤)"""
+    """계약서 검토기 반환"""
     global _contract_checker
     
     if _contract_checker is None:
@@ -453,7 +448,7 @@ def get_contract_legal_checker() -> ContractLegalChecker:
 
 # contract_report.py에서 직접 호출하는 함수
 def analyze_contract_text_for_report(contract_text: str, is_jeonse: bool = True) -> List[Dict[str, Any]]:
-    """contract_report.py 전용 계약서 분석 함수 (원래 프롬프트 완전 적용)"""
+    """contract_report.py 전용 계약서 분석 함수"""
     checker = get_contract_legal_checker()
     return checker.analyze_contract_text(contract_text, is_jeonse)
 
