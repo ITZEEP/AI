@@ -1,334 +1,433 @@
 """
-generators/contract_report.py - 계약서 법령 적법성 검토 Spring 연동
+generators/contract_report.py - 계약서 적법성 검사 Spring 연동
 
 역할:
-1. Spring에서 계약서 데이터 수신 (ERD 기반)
-2. AI 모델로 법령 적법성 검토 수행  
-3. 검토 결과를 Spring 형태로 반환
-4. 이미지에서 보인 형태로 위반사항 포맷팅
+1. AI 생성 특약 + 계약서 기본정보 수신 및 파싱
+2. 계약서 적법성 검사 수행  
+3. 검사 결과를 Spring 형태로 반환
+4. 임대차보호법, 민법 위반사항 포맷팅
 """
 import sys
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
-from dateutil import parser as date_parser
+from dataclasses import dataclass
+from enum import Enum
+import json
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# 내부 모듈 - 기존 LLM 코드에 맞게 import
 from config.logger_config import get_logger
-from model.clause_checker import (
-    ContractInfo, 
-    LegalViolation, 
-    ViolationType,
-    check_contract_legality_for_spring
-)
-
 logger = get_logger(__name__)
 
 
-class ContractValidationGenerator:
-    """계약서 법령 검토 결과 생성기 - Spring 연동 전용"""
+class ViolationType(Enum):
+    """위반 유형"""
+    ILLEGAL = "위반"           # 명백한 법령 위반
+    CAUTION = "주의"          # 주의가 필요한 조항
+    LEGAL = "적법"            # 법령에 적합
+
+
+@dataclass
+class ContractBasicInfo:
+    """계약서 기본 정보)"""
+    contract_chat_id: int
+    # 제1조 계약 당사자
+    owner_name: str
+    owner_addr: str
+    owner_phone_num: str
+    buyer_name: str
+    buyer_addr: str
+    buyer_phone_num: str
+    # 제2조 임대물건의 표시
+    home_addr1: str
+    home_addr2: str
+    residence_type: str
+    exclusive_area: float
+    home_floor: int
+    # 제3조 임대차 기간 및 임료
+    contract_start_date: str
+    contract_end_date: str
+    deposit_price: int
+    monthly_rent: int
+    maintenance_fee: int
+
+
+@dataclass
+class GeneratedClause:
+    """특약 데이터"""
+    order: int
+    title: str
+    content: str
+
+
+@dataclass
+class ClausesData:
+    """AI 생성 특약 전체 데이터"""
+    success: bool
+    message: str
+    timestamp: str
+    total_clauses: int
+    clauses: List[GeneratedClause]
+
+
+@dataclass
+class LegalViolation:
+    """법령 위반 정보"""
+    violation_type: ViolationType
+    law_name: str
+    violation_content: str
+    explanation: str
+    legal_basis: str
+    improvement_example: str
+    original_clause: str
+
+
+@dataclass
+class ValidationResult:
+    """적법성 검사 결과"""
+    success: bool
+    contract_chat_id: int
+    validation_status: str      # "LEGAL", "CAUTION", "VIOLATION", "ERROR"
+    total_violations: int
+    violations: List[LegalViolation]
+    validated_at: str
+
+
+class ContractDataParser:
+    """계약서 데이터 파싱 유틸리티"""
     
-    def __init__(self):
-        """계약서 검토 모델 초기화 - 기존 LLM 코드 활용"""
-        # 기존 clause_checker.py의 편의 함수 활용
-        logger.info("ContractValidationGenerator 초기화 완료")
-    
-    def validate_contract_for_spring(self, 
-                                   contract_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Spring에서 받은 계약서 데이터로 법령 검토 후 Spring 형태로 반환
-        
-        Args:
-            contract_data: Spring에서 전달된 계약서 데이터 (ERD 기반)
-            {
-                "contract_id": 1,
-                "home_id": 1,
-                "owner_id": 1,
-                "buyer_id": 2,
-                "contract_date": "2024-01-01T00:00:00",
-                "contract_expire_date": "2025-12-31T00:00:00",
-                "deposit_price": 150000000,
-                "monthly_rent": 500000,
-                "maintenance_fee": 100000,
-                "special_clauses": [
-                    "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
-                    "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다."
-                ]
-            }
-            
-        Returns:
-            Spring 형태의 검토 결과
-        """
+    @staticmethod
+    def parse_clauses_data(clauses_json: Dict[str, Any]) -> ClausesData:
+        """AI 생성 특약 데이터 파싱"""
         try:
-            logger.info(f"계약서 법령 검토 시작 - contract_id: {contract_data.get('contractId')}")
+            data_section = clauses_json.get('data', {})
+            clauses_list = data_section.get('clauses', [])
             
-            # 1. Spring 데이터를 AI 모델 형태로 변환
-            contract_info = self._parse_spring_contract_data(contract_data)
+            parsed_clauses = []
+            for clause_data in clauses_list:
+                parsed_clauses.append(GeneratedClause(
+                    order=clause_data.get('order', 0),
+                    title=clause_data.get('title', ''),
+                    content=clause_data.get('content', '')
+                ))
             
-            # 2. 기존 LLM의 Spring 연동 편의 함수 활용
-            violations = check_contract_legality_for_spring(
-                contract_id=contract_info.contract_id,
-                home_id=contract_info.home_id,
-                owner_id=contract_info.owner_id,
-                buyer_id=contract_info.buyer_id,
-                contract_date=contract_info.contract_date,
-                contract_expire_date=contract_info.contract_expire_date,
-                special_clauses=contract_info.special_clauses,
-                deposit_price=contract_info.deposit_price,
-                monthly_rent=contract_info.monthly_rent,
-                maintenance_fee=contract_info.maintenance_fee
+            return ClausesData(
+                success=clauses_json.get('success', False),
+                message=clauses_json.get('message', ''),
+                timestamp=clauses_json.get('timestamp', ''),
+                total_clauses=data_section.get('total_clauses', len(parsed_clauses)),
+                clauses=parsed_clauses
             )
             
-            # 3. Spring 형태로 결과 변환
-            spring_response = self._convert_to_spring_format(violations, contract_info)
+        except Exception as e:
+            logger.error(f"특약 데이터 파싱 실패: {e}")
+            return ClausesData(
+                success=False,
+                message="파싱 실패",
+                timestamp=datetime.now().isoformat(),
+                total_clauses=0,
+                clauses=[]
+            )
+    
+    @staticmethod
+    def parse_contract_basic_info(contract_json: Dict[str, Any]) -> ContractBasicInfo:
+        """계약서 기본 정보 파싱"""
+        try:
+            return ContractBasicInfo(
+                contract_chat_id=contract_json.get('contractChatId', 0),
+                owner_name=contract_json.get('ownerName', ''),
+                owner_addr=contract_json.get('ownerAddr', ''),
+                owner_phone_num=contract_json.get('ownerPhoneNum', ''),
+                buyer_name=contract_json.get('buyerName', ''),
+                buyer_addr=contract_json.get('buyerAddr', ''),
+                buyer_phone_num=contract_json.get('buyerPhoneNum', ''),
+                home_addr1=contract_json.get('homeAddr1', ''),
+                home_addr2=contract_json.get('homeAddr2', ''),
+                residence_type=contract_json.get('residenceType', ''),
+                exclusive_area=contract_json.get('exclusiveArea', 0.0),
+                home_floor=contract_json.get('homeFloor', 0),
+                contract_start_date=contract_json.get('contractStartDate', ''),
+                contract_end_date=contract_json.get('contractEndDate', ''),
+                deposit_price=contract_json.get('depositPrice', 0),
+                monthly_rent=contract_json.get('monthlyRent', 0),
+                maintenance_fee=contract_json.get('maintenanceFee', 0)
+            )
             
-            logger.info(f"계약서 검토 완료 - 총 {len(violations)}건 문제 발견")
+        except Exception as e:
+            logger.error(f"계약서 기본 정보 파싱 실패: {e}")
+            return ContractBasicInfo(
+                contract_chat_id=0,
+                owner_name="파싱실패", buyer_name="파싱실패",
+                owner_addr="", owner_phone_num="", buyer_addr="", buyer_phone_num="",
+                home_addr1="", home_addr2="", residence_type="",
+                exclusive_area=0.0, home_floor=0,
+                contract_start_date="", contract_end_date="",
+                deposit_price=0, monthly_rent=0, maintenance_fee=0
+            )
+    
+    @staticmethod
+    def format_contract_for_ai_analysis(basic_info: ContractBasicInfo, clauses_data: ClausesData) -> str:
+        """AI 분석용 계약서 전체 텍스트 생성"""
+        
+        contract_parts = []
+        
+        # 1. 기본 계약 정보
+        contract_parts.append("=== 계약서 기본 정보 ===")
+        contract_parts.append(f"계약채팅 ID: {basic_info.contract_chat_id}")
+        
+        # 2. 계약 당사자
+        contract_parts.append("=== 제1조 계약 당사자 ===")
+        contract_parts.append(f"임대인: {basic_info.owner_name} ({basic_info.owner_addr})")
+        contract_parts.append(f"임차인: {basic_info.buyer_name} ({basic_info.buyer_addr})")
+        
+        # 3. 임대물건 정보
+        contract_parts.append("=== 제2조 임대물건의 표시 ===")
+        contract_parts.append(f"소재지: {basic_info.home_addr1} {basic_info.home_addr2}")
+        contract_parts.append(f"건물유형: {basic_info.residence_type}")
+        contract_parts.append(f"전용면적: {basic_info.exclusive_area}㎡")
+        contract_parts.append(f"층수: {basic_info.home_floor}층")
+        
+        # 4. 계약 조건
+        contract_parts.append("=== 제3조 임대차 기간 및 임료 ===")
+        
+        # 날짜 파싱
+        try:
+            start_date = datetime.strptime(basic_info.contract_start_date, '%Y-%m-%d')
+            end_date = datetime.strptime(basic_info.contract_end_date, '%Y-%m-%d')
+            period_days = (end_date - start_date).days + 1
+            period_years = period_days / 365
+            
+            contract_parts.append(f"계약기간: {start_date.strftime('%Y년 %m월 %d일')} ~ {end_date.strftime('%Y년 %m월 %d일')} (총 {period_days}일, 약 {period_years:.1f}년)")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"날짜 파싱 실패: {e}")
+            contract_parts.append(f"계약기간: {basic_info.contract_start_date} ~ {basic_info.contract_end_date}")
+        
+        # 임대차 유형 및 금액
+        if basic_info.monthly_rent == 0:
+            # 전세 계약
+            contract_parts.append("임대차 유형: 전세 계약")
+            contract_parts.append(f"전세보증금: {basic_info.deposit_price:,}원")
+            
+        else:
+            # 월세 계약
+            contract_parts.append("임대차 유형: 월세 계약")
+            contract_parts.append(f"보증금: {basic_info.deposit_price:,}원")
+            contract_parts.append(f"월세: {basic_info.monthly_rent:,}원")
+            
+            # 월세 비율 계산
+            if basic_info.deposit_price > 0:
+                monthly_ratio = (basic_info.monthly_rent * 12) / basic_info.deposit_price * 100
+                contract_parts.append(f"연간 월세/보증금 비율: {monthly_ratio:.1f}%")
+        
+        # 관리비
+        if basic_info.maintenance_fee > 0:
+            contract_parts.append(f"관리비: {basic_info.maintenance_fee:,}원")
+        
+        # 5. AI 생성 특약사항
+        if clauses_data.success and clauses_data.clauses:
+            contract_parts.append("=== AI 생성 특약사항 ===")
+            for clause in clauses_data.clauses:
+                contract_parts.append(f"{clause.order}. [{clause.title}] {clause.content}")
+        else:
+            contract_parts.append("=== 특약사항 없음 ===")
+        
+        return "\n".join(contract_parts)
+
+
+class ContractValidationGenerator:
+    """계약서 적법성 검사 결과 생성기"""
+    
+    @staticmethod
+    def validate_contract_with_clauses(clauses_data_json: Dict[str, Any],
+                                     contract_basic_info_json: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        AI 생성 특약 + 계약서 기본정보로 적법성 검사 후 Spring 형태로 반환
+        
+        Args:
+            clauses_data_json: AI가 생성한 특약 데이터 JSON
+            contract_basic_info_json: 계약서 기본 정보 JSON
+            
+        Returns:
+            Spring 형태의 적법성 검사 결과
+        """
+        try:
+            logger.info(f"계약서 적법성 검사 시작 - contractChatId: {contract_basic_info_json.get('contractChatId')}")
+            
+            # 1. 입력 데이터 파싱
+            clauses_data = ContractDataParser.parse_clauses_data(clauses_data_json)
+            basic_info = ContractDataParser.parse_contract_basic_info(contract_basic_info_json)
+            
+            # 2. AI 분석용 계약서 텍스트 생성
+            contract_text = ContractDataParser.format_contract_for_ai_analysis(basic_info, clauses_data)
+            
+            # 3. AI 모델로 적법성 검사
+            violations = ContractValidationGenerator._analyze_contract_legality(contract_text, basic_info)
+            
+            # 4. Spring 응답 형태로 변환
+            spring_response = ContractValidationGenerator._convert_to_spring_format(
+                violations, basic_info, clauses_data
+            )
+            
+            logger.info(f"계약서 적법성 검사 완료 - 총 {len(violations)}건 문제 발견")
             return spring_response
         
         except Exception as e:
-            logger.error(f"계약서 검토 실패: {e}")
-            return self._get_spring_fallback_response()
+            logger.error(f"계약서 적법성 검사 실패: {e}")
+            return ContractValidationGenerator._get_error_response()
     
-    def _parse_spring_contract_data(self, spring_data: Dict[str, Any]) -> ContractInfo:
-        """Spring 계약서 데이터를 AI 모델 형태로 변환"""
+    @staticmethod
+    def _analyze_contract_legality(contract_text: str, basic_info: ContractBasicInfo) -> List[LegalViolation]:
+        """계약서 적법성 분석"""
         try:
-            logger.info(f"Spring 데이터 키: {list(spring_data.keys())}")
-            logger.info(f"contractDate: {spring_data.get('contractDate')}")
-            logger.info(f"contractExpireDate: {spring_data.get('contractExpireDate')}")
+            # clause_checker의 간단한 분석 함수 사용
+            from model.clause_checker import analyze_contract_text_for_report
             
-            # 날짜 문자열을 datetime 객체로 변환 (camelCase 키 사용)
-            contract_date = self._parse_datetime(spring_data.get('contractDate'))
-            contract_expire_date = self._parse_datetime(spring_data.get('contractExpireDate'))
+            # 전세/월세 판단
+            is_jeonse = basic_info.monthly_rent == 0
             
-            return ContractInfo(
-                contract_id=spring_data.get('contractId', 0),
-                home_id=spring_data.get('homeId', 0),
-                owner_id=spring_data.get('ownerId', 0),
-                buyer_id=spring_data.get('buyerId', 0),
-                contract_date=contract_date,
-                contract_expire_date=contract_expire_date,
-                deposit_price=spring_data.get('depositPrice'),
-                monthly_rent=spring_data.get('monthlyRent'),
-                maintenance_fee=spring_data.get('maintenanceFee'),
-                special_clauses=spring_data.get('specialClauses', [])
-            )
+            # AI 모델로 분석 (딕셔너리 리스트 반환)
+            violation_dicts = analyze_contract_text_for_report(contract_text, is_jeonse)
+            
+            # 딕셔너리를 LegalViolation 객체로 변환
+            violations = []
+            for v_dict in violation_dicts:
+                violation_type = ViolationType.ILLEGAL if v_dict.get('violation_type') == "위반" else ViolationType.CAUTION
+                violations.append(LegalViolation(
+                    violation_type=violation_type,
+                    law_name=v_dict.get('law_name', ''),
+                    violation_content=v_dict.get('violation_content', ''),
+                    explanation=v_dict.get('explanation', ''),
+                    legal_basis=v_dict.get('legal_basis', ''),
+                    improvement_example=v_dict.get('improvement_example', ''),
+                    original_clause=v_dict.get('original_clause', '')
+                ))
+            
+            return violations
             
         except Exception as e:
-            logger.error(f"Spring 데이터 파싱 실패: {e}")
-            # 기본값으로 생성
-            return ContractInfo(
-                contract_id=0,
-                home_id=0,
-                owner_id=0,
-                buyer_id=0,
-                contract_date=datetime.now(),
-                contract_expire_date=datetime.now(),
-                special_clauses=[]
-            )
+            logger.error(f"AI 적법성 분석 실패: {e}")
+            return []
     
-    def _parse_datetime(self, date_str: Optional[str]) -> datetime:
-        """날짜 문자열을 datetime 객체로 변환"""
-        if not date_str:
-            raise ValueError("날짜 문자열이 비어있습니다")
+    @staticmethod
+    def _convert_to_spring_format(violations: List[LegalViolation], 
+                                basic_info: ContractBasicInfo,
+                                clauses_data: ClausesData) -> Dict[str, Any]:
+        """검사 결과를 Spring 형태로 변환"""
         
-        try:
-            return date_parser.parse(date_str)
-        except Exception as e:
-            logger.warning(f"날짜 파싱 실패: {date_str}, 오류: {e}")
-            raise ValueError(f"날짜 파싱 실패: {date_str}")
-    
-    def _convert_to_spring_format(self, violations: List[LegalViolation], 
-                                 contract_info: ContractInfo) -> Dict[str, Any]:
-        """AI 분석 결과를 Spring 형태로 변환"""
-        
-        # 위반사항들을 Spring DetailGroup 형태로 변환
-        violation_details = []
-        
-        for violation in violations:
-            # 이미지에서 본 형태로 포맷팅
-            violation_detail = {
-                "violation_type": violation.violation_type.value,  # "위반", "주의", "적법"
-                "law_name": violation.law_name,                   # "주택임대차보호법"
-                "violation_content": violation.violation_content, # "잘못된 내용"
-                "explanation": violation.explanation,             # "내용에 대한 설명"
-                "legal_basis": violation.legal_basis,             # "제6조 제1항"
-                "improvement_example": violation.improvement_example, # "개선 방안 예시"
-                "original_clause": violation.original_clause      # "원본 조항"
-            }
-            violation_details.append(violation_detail)
-        
-        # 전체 계약서 상태 판정
-        overall_status = self._determine_overall_status(violations)
-        
-        return {
-            "success": True,
-            "contract_id": contract_info.contract_id,
-            "validation_status": overall_status,
-            "total_violations": len(violations),
-            "violation_summary": {
-                "illegal_count": len([v for v in violations if v.violation_type == ViolationType.ILLEGAL]),
-                "caution_count": len([v for v in violations if v.violation_type == ViolationType.CAUTION])
-            },
-            "violations": violation_details,
-            "validated_at": datetime.now().isoformat(),
-            "recommendation": self._get_overall_recommendation(violations)
-        }
-    
-    def _determine_overall_status(self, violations: List[LegalViolation]) -> str:
-        """전체 계약서 상태 판정"""
-        if not violations:
-            return "LEGAL"  # 적법
-        
-        # 명백한 위반이 있는 경우
-        if any(v.violation_type == ViolationType.ILLEGAL for v in violations):
-            return "VIOLATION"  # 위반
-        
-        # 주의사항만 있는 경우
-        return "CAUTION"  # 주의
-    
-    def _get_overall_recommendation(self, violations: List[LegalViolation]) -> str:
-        """전체적인 권고사항 생성"""
-        if not violations:
-            return "검토 결과 법령에 위반되는 조항이 발견되지 않았습니다."
-        
+        # 전체 상태 판정
         illegal_count = len([v for v in violations if v.violation_type == ViolationType.ILLEGAL])
         caution_count = len([v for v in violations if v.violation_type == ViolationType.CAUTION])
         
         if illegal_count > 0:
-            return f"법령 위반 조항 {illegal_count}건이 발견되어 계약서 수정이 필요합니다. 전문가 상담을 권장드립니다."
+            validation_status = "VIOLATION"
         elif caution_count > 0:
-            return f"주의가 필요한 조항 {caution_count}건이 발견되었습니다. 해당 조항들을 검토해보시기 바랍니다."
+            validation_status = "CAUTION"
         else:
-            return "계약서 검토가 완료되었습니다."
+            validation_status = "LEGAL"
+        
+        # 위반사항 리스트만 생성
+        violation_details = []
+        for violation in violations:
+            violation_details.append({
+                "violation_type": violation.violation_type.value,
+                "law_name": violation.law_name,
+                "violation_content": violation.violation_content,
+                "explanation": violation.explanation,
+                "legal_basis": violation.legal_basis,
+                "improvement_example": violation.improvement_example,
+                "original_clause": violation.original_clause
+            })
+        
+        
+        # 심플한 Spring 형태 JSON 구조 
+        return {
+            "success": True,
+            "contract_chat_id": basic_info.contract_chat_id,
+            "validation_status": validation_status,
+            "total_violations": len(violations),
+            "violations": violation_details,
+            "validated_at": datetime.now().isoformat()
+        }
     
-    def _get_spring_fallback_response(self) -> Dict[str, Any]:
-        """오류시 Spring 기본 응답"""
+    
+    @staticmethod
+    def _get_error_response() -> Dict[str, Any]:
+        """오류시 기본 응답"""
         return {
             "success": False,
             "error": "계약서 법령 검토 중 오류가 발생했습니다",
-            "contract_id": 0,
+            "contract_chat_id": 0,
             "validation_status": "ERROR",
             "total_violations": 0,
-            "violation_summary": {
-                "illegal_count": 0,
-                "caution_count": 0
-            },
             "violations": [],
             "validated_at": datetime.now().isoformat(),
-            "recommendation": "시스템 오류로 인해 법령 검토를 완료할 수 없습니다. 전문가 상담을 권장드립니다."
         }
-
-
-class ContractClauseParser:
-    """계약서 조항 파싱 유틸리티"""
-    
-    @staticmethod
-    def parse_contract_from_pdf_data(pdf_extracted_data: Dict[str, Any]) -> Dict[str, Any]:
-        """PDF 추출 데이터를 계약서 정보로 변환"""
-        try:
-            # PDF에서 추출된 특약사항 파싱
-            special_clauses = pdf_extracted_data.get('special_terms', [])
-            
-            # 기본 계약 정보 추출 (PDF OCR 결과에서)
-            contract_info = {
-                "special_clauses": special_clauses,
-                "contract_date": pdf_extracted_data.get('contract_date'),
-                "contract_expire_date": pdf_extracted_data.get('contract_expire_date'),
-                "deposit_price": pdf_extracted_data.get('deposit_price'),
-                "monthly_rent": pdf_extracted_data.get('monthly_rent'),
-                "maintenance_fee": pdf_extracted_data.get('maintenance_fee')
-            }
-            
-            return contract_info
-            
-        except Exception as e:
-            logger.error(f"PDF 데이터 파싱 실패: {e}")
-            return {"special_clauses": []}
-    
-    @staticmethod
-    def extract_clause_categories(clauses: List[str]) -> Dict[str, List[str]]:
-        """특약 조항들을 카테고리별로 분류"""
-        categories = {
-            "임대료_관련": [],
-            "계약기간_관련": [],
-            "시설_관리": [],
-            "생활_규칙": [],
-            "기타": []
-        }
-        
-        for clause in clauses:
-            if any(keyword in clause for keyword in ["임대료", "보증금", "월세", "관리비"]):
-                categories["임대료_관련"].append(clause)
-            elif any(keyword in clause for keyword in ["계약기간", "갱신", "해지", "연장"]):
-                categories["계약기간_관련"].append(clause)
-            elif any(keyword in clause for keyword in ["수리", "보수", "시설", "설비"]):
-                categories["시설_관리"].append(clause)
-            elif any(keyword in clause for keyword in ["소음", "흡연", "애완동물", "반려동물"]):
-                categories["생활_규칙"].append(clause)
-            else:
-                categories["기타"].append(clause)
-        
-        return categories
 
 
 # 편의 함수
-def validate_contract_for_spring(contract_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Spring용 계약서 법령 검토 편의 함수 - 기존 LLM 활용"""
-    generator = ContractValidationGenerator()
-    return generator.validate_contract_for_spring(contract_data)
+def validate_contract_with_clauses_for_spring(clauses_data: Dict[str, Any], 
+                                            contract_basic_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Spring용 계약서 적법성 검사 편의 함수"""
+    return ContractValidationGenerator.validate_contract_with_clauses(clauses_data, contract_basic_info)
 
 
-def parse_pdf_contract_data(pdf_data: Dict[str, Any]) -> Dict[str, Any]:
-    """PDF 추출 데이터 파싱 편의 함수"""
-    return ContractClauseParser.parse_contract_from_pdf_data(pdf_data)
-
-
-# # 사용 예제
+# 사용 예제
 # if __name__ == "__main__":
-#     print("\n=== 계약서 법령 검토 Spring 연동 테스트 (기존 LLM 활용) ===")
+#     print("\n=== 계약서 적법성 검사 Spring 연동 테스트 ===")
     
-#     # 테스트용 Spring 계약서 데이터 (ERD 기반)
-#     test_spring_data = {
-#         "contract_id": 1,
-#         "home_id": 1,
-#         "owner_id": 1,
-#         "buyer_id": 2,
-#         "contract_date": "2024-01-01T00:00:00",
-#         "contract_expire_date": "2025-12-31T00:00:00",
-#         "deposit_price": 150000000,  # 1.5억원
-#         "monthly_rent": 500000,
-#         "maintenance_fee": 100000,
-#         "special_clauses": [
-#             "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
-#             "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.",
-#             "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",  # 명백한 위반
-#             "임차인은 전대 및 양도를 할 수 없다."
-#         ]
+#     # 테스트용 AI 생성 특약 데이터
+#     test_clauses_data = {
+#         "success": True,
+#         "message": "특약 생성 및 평가 완료",
+#         "timestamp": "2025-08-04T13:15:02.706857",
+#         "data": {
+#             "total_clauses": 3,
+#             "clauses": [
+#                 {
+#                     "order": 1,
+#                     "title": "근저당권 감액 조건부 계약",
+#                     "content": "임대인은 잔금 지급일까지 본 부동산에 설정된 근저당권을 감액 등기한다."
+#                 },
+#                 {
+#                     "order": 2,
+#                     "title": "임대인 임의 해지",
+#                     "content": "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다."  # 위반 조항
+#                 },
+#                 {
+#                     "order": 3,
+#                     "title": "전세보증금 반환보증보험",
+#                     "content": "임대인은 임차인의 전세보증금 반환보증보험 가입에 협조한다."
+#                 }
+#             ]
+#         }
 #     }
     
-#     # 상세 법령 검토
-#     print("🔍 상세 법령 검토 실행 중...")
-#     detailed_result = validate_contract_for_spring(test_spring_data)
+#     # 테스트용 계약서 기본 정보
+#     test_contract_basic_info = {
+#         "contractChatId": 1234,
+#         "ownerName": "홍길동",
+#         "ownerAddr": "서울특별시 강남구 논현동 123-4",
+#         "ownerPhoneNum": "01012345678",
+#         "buyerName": "김영희", 
+#         "buyerAddr": "서울특별시 마포구 서교동 56-7",
+#         "buyerPhoneNum": "01098765432",
+#         "homeAddr1": "서울특별시 용산구 이촌동",
+#         "homeAddr2": "이촌로 123, 101동 202호",
+#         "residenceType": "아파트",
+#         "exclusiveArea": 84.5,
+#         "homeFloor": 2,
+#         "contractStartDate": "2025-09-01",
+#         "contractEndDate": "2027-08-31",
+#         "depositPrice": 100000000,
+#         "monthlyRent": 0,  # 전세
+#         "maintenanceFee": 120000
+#     }
     
-#     print(f"검토 상태: {detailed_result['validation_status']}")
-#     print(f"총 위반사항: {detailed_result['total_violations']}건")
-#     print(f"권고사항: {detailed_result['recommendation']}")
+#     # 적법성 검사 실행
+#     result = validate_contract_with_clauses_for_spring(test_clauses_data, test_contract_basic_info)
     
-#     if detailed_result['violations']:
-#         print("\n📋 발견된 문제점들:")
-#         for i, violation in enumerate(detailed_result['violations'], 1):
-#             print(f"\n--- {i}번째 문제점 ---")
-#             print(f"어느 법령: {violation['law_name']}")
-#             print(f"잘못된 내용: {violation['violation_content']}")
-#             print(f"내용에 대한 설명: {violation['explanation']}")
-#             print(f"근거: {violation['legal_basis']}")
-#             print(f"🔧 개선방안: {violation['improvement_example']}")
-    
-#     print("\n🎉 테스트 완료!")
-#     print("\n💡 Spring 연동 방법 (기존 LLM 코드 활용):")
-#     print("   1. POST /api/contract/validate")
-#     print("   2. Request Body: contract_data (ERD 기반)")
-#     print("   3. Response: validation 결과 (기존 clause_checker.py LLM 처리)")
-#     print("   4. LLM 모델: model/clause_checker.py의 ContractLegalChecker 활용")
+#     # JSON 형태로 예쁘게 출력
+#     print("\n📄 JSON 형식 결과 출력")
+#     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+#     print(json.dumps(result, indent=2, ensure_ascii=False))
