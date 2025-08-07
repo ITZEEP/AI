@@ -9,7 +9,7 @@ generators/contract_report.py - 계약서 적법성 검사 Spring 연동
 """
 import sys
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
@@ -199,7 +199,8 @@ class ContractDataParser:
             period_years = period_days / 365
             
             contract_parts.append(f"계약기간: {start_date.strftime('%Y년 %m월 %d일')} ~ {end_date.strftime('%Y년 %m월 %d일')} (총 {period_days}일, 약 {period_years:.1f}년)")
-        except:
+        except (ValueError, TypeError) as e:
+            logger.warning(f"날짜 파싱 실패: {e}")
             contract_parts.append(f"계약기간: {basic_info.contract_start_date} ~ {basic_info.contract_end_date}")
         
         # 임대차 유형 및 금액
@@ -267,13 +268,6 @@ class ContractValidationGenerator:
             spring_response = ContractValidationGenerator._convert_to_spring_format(
                 violations, basic_info, clauses_data
             )
-            
-            # 🆕 JSON 예쁘게 출력해서 확인 가능하게!
-            print("\n" + "="*80)
-            print("📋 Spring으로 보낼 JSON 응답:")
-            print("="*80)
-            print(json.dumps(spring_response, ensure_ascii=False, indent=2))
-            print("="*80 + "\n")
             
             logger.info(f"계약서 적법성 검사 완료 - 총 {len(violations)}건 문제 발견")
             return spring_response

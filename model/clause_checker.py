@@ -78,22 +78,22 @@ class ContractLegalChecker:
             raise
             
     def _setup_vectorstore(self):
-        """법령 벡터스토어 설정"""
+        """벡터스토어 설정"""
         if not LAW_SYSTEM_AVAILABLE:
-            logger.error("law_system을 사용할 수 없습니다. 법령 검토를 수행할 수 없습니다.")
-            raise RuntimeError("법령 벡터스토어를 사용할 수 없습니다. law_system이 필요합니다.")
+            logger.warning("Working without RAG - law_system not available")
+            return None
         
         try:
             vectorstore = get_law_vectorstore()
             if vectorstore:
-                logger.info("법령 벡터스토어 연결 성공")
+                logger.info("Vectorstore connected successfully for improvement")
                 return vectorstore
             else:
-                logger.error("벡터스토어가 None입니다. 법령 데이터가 없습니다.")
-                raise 
+                logger.warning("Vectorstore is None")
+                return None
         except Exception as e:
-            logger.error(f"벡터스토어 연결 실패: {e}")
-            raise 
+            logger.error(f"Vectorstore connection failed: {e}")
+            return None
         
     def analyze_contract_text(self, contract_text: str, is_jeonse: bool = True) -> List[Dict[str, Any]]:
         """
@@ -165,7 +165,7 @@ class ContractLegalChecker:
             ]
             
             for query in comprehensive_queries:
-                laws = search_law(query, k=10)  # 각 카테고리마다 8개씩
+                laws = search_law(query, k=8)  # 각 카테고리마다 8개씩
                 all_laws.extend(laws)
                 logger.info(f"포괄적 검색 '{query}': {len(laws)}개 법령 수집")
             
@@ -217,7 +217,7 @@ class ContractLegalChecker:
                 specific_queries.append("근저당권 우선변제 경합관계")
             
             for query in specific_queries:
-                laws = search_law(query, k=5)
+                laws = search_law(query, k=4)
                 all_laws.extend(laws)
                 logger.info(f"특정 내용 검색 '{query}': {len(laws)}개 법령 수집")
             
@@ -233,7 +233,7 @@ class ContractLegalChecker:
             logger.info(f"수집된 법령 소스별 분포: {law_sources}")
             logger.info(f"총 수집된 법령: {len(all_laws)}개 → 중복 제거 후: {len(unique_laws)}개")
             
-            return unique_laws[:100]  # 더 많은 법령 활용 (100개까지)
+            return unique_laws[:80]  # 더 많은 법령 활용 (80개까지)
             
         except Exception as e:
             logger.error(f"포괄적 법령 검색 실패: {e}")
