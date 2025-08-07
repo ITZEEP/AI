@@ -4,7 +4,7 @@ model/risk_model.py - 행정안전부 도로명주소 API 기반 사기위험도
 역할:
 1. 우선순위 기반 위험도 판정 (SAFE/WARN/DANGER)
 2. 행정안전부 API로 정확한 주소 검증
-3. 4개 카테고리별 상세 분석 내용 생성
+3. 4개 카테고리별 개별 위험도 분석 및 상세 분석 내용 생성
 4. Spring DetailGroup 형태로 정확한 결과 반환
 """
 
@@ -14,13 +14,15 @@ import re
 import requests
 from typing import Dict, List, Optional
 from datetime import date
-from dataclasses import dataclass
 from enum import Enum
 from dotenv import load_dotenv
 
+# risk_report.py의 구조를 import해서 사용
+from generators.risk_report import RiskAnalysisResult, CategoryAnalysisResult, DetailAnalysisResult
+
 # 프로젝트 루트 경로 설정
 current_file_path = os.path.abspath(__file__)
-project_root = os.path.dirname(os.path.dirname(current_file_path))  # D:\itzip\AI-develop
+project_root = os.path.dirname(os.path.dirname(current_file_path))
 law_system_path = os.path.join(project_root, "law_system")
 
 # 프로젝트 루트를 sys.path에 추가
@@ -62,89 +64,8 @@ class RiskLevel(str, Enum):
     DANGER = "DANGER"  # 위험
 
 
-@dataclass
-class UserInfo:
-    """사용자 정보"""
-    user_id: int
-    user_type: str  # "landlord" or "tenant"
-
-
-@dataclass
-class PropertyInfo:
-    """매물 정보 (Spring DB에서 가져온 실제 등록 정보)"""
-    home_id: int
-    address: str                          # 등록된 주소 (addr1 + addr2)
-    registered_user_name: str             # 매물 등록한 사람 이름
-    residence_type: str                   # "APARTMENT", "OFFICETEL" 등
-    lease_type: str                       # "JEONSE" or "WOLSE"
-    deposit_price: Optional[int] = None   # 보증금
-    monthly_rent: Optional[int] = None    # 월세
-    maintenance_fee: Optional[int] = None # 관리비
-
-
-@dataclass
-class MortgageeInfo:
-    """근저당권 정보"""
-    priority_number: int          # 순위번호
-    debtor: str                               # 채무자 (필수)
-    max_claim_amount: Optional[int] = None    # 채권최고액
-    mortgagee: Optional[str] = None           # 근저당권자
-
-
-@dataclass
-class RegistryData:
-    """등기부등본 데이터 (Spring에서 사용자 검증 완료된 데이터)"""
-    region_address: str                   # 소재지번
-    road_address: str                     # 도로명주소
-    owner_name: str                       # 소유자명
-    owner_birth_date: Optional[date] = None
-    debtor: Optional[str] = None              # 채무자 (첫 번째 근저당권의 채무자)
-    mortgagee_list: Optional[List[MortgageeInfo]] = None  # 근저당권 목록
-    has_seizure: bool = False                 # 가압류 여부
-    has_auction: bool = False                 # 경매 여부
-    has_litigation: bool = False              # 소송 여부
-    has_attachment: bool = False              # 압류 여부
-
-
-@dataclass
-class BuildingData:
-    """건축물대장 데이터 (Spring에서 사용자 검증 완료된 데이터)"""
-    site_location: str                    # 대지위치
-    road_address: str                     # 도로명주소
-    total_floor_area: float               # 연면적
-    purpose: str                          # 용도
-    floor_number: int                     # 층수
-    approval_date: Optional[date] = None  # 사용승인일
-    is_violation_building: bool = False   # 위반건축물 여부
-
-
-@dataclass
-class DetailAnalysisResult:
-    """카테고리별 상세 분석 결과"""
-    basic_info_title: str                 # 기본정보 제목
-    basic_info_content: str               # 기본정보 내용
-    
-    rights_info_title: str                # 권리관계 제목
-    rights_info_content: str              # 권리관계 내용
-    
-    building_info_title: str              # 건축관련 제목
-    building_info_content: str            # 건축관련 내용
-    
-    legal_info_title: str                 # 법령위험 제목
-    legal_info_content: str               # 법령위험 내용
-
-
-@dataclass
-class RiskAnalysisResult:
-    """종합 위험도 분석 결과"""
-    risk_level: RiskLevel                 # 종합 위험도
-    risk_message: str                     # 위험도 메시지 
-    detail_analysis: DetailAnalysisResult # 4개 카테고리 분석
-    confidence_score: float = 0.8         # 분석 신뢰도
-
-
 class JusoApiAddressVerifier:
-    """행정안전부 도로명주소 API 기반 주소 검증기 (독립적인 클래스)"""
+    """행정안전부 도로명주소 API 기반 주소 검증기"""
     
     def __init__(self):
         """행정안전부 도로명주소 API 초기화"""
@@ -356,7 +277,7 @@ class RiskAnalysisModel:
         self.temperature = temperature
         self.llm = self._setup_llm()
         self.vectorstore = self._setup_vectorstore()
-        self.address_verifier = JusoApiAddressVerifier()  # OK 독립적인 주소 검증기
+        self.address_verifier = JusoApiAddressVerifier()
         
     def _setup_llm(self):
         """Gemini 1.5 Flash LLM 설정"""
@@ -401,27 +322,17 @@ class RiskAnalysisModel:
             logger.error("Make sure ChromaDB is installed and vectorstore data exists")
             raise
     
-    def analyze_risk(self, 
-                    user_info: UserInfo,
-                    property_info: PropertyInfo,
-                    registry_data: RegistryData, 
-                    building_data: BuildingData) -> RiskAnalysisResult:
+    def analyze_risk_with_categories(self, user_info, property_info, registry_data, building_data):
         """
-        종합 위험도 분석 수행
+        카테고리별 개별 위험도 분석을 포함한 종합 위험도 분석 수행
         
-        Args:
-            user_info: 사용자 정보
-            property_info: 매물 정보 (Spring DB 데이터)
-            registry_data: 등기부등본 데이터 (사용자 검증 완료)
-            building_data: 건축물대장 데이터 (사용자 검증 완료)
-            
         Returns:
-            RiskAnalysisResult: 파싱된 분석 결과
+            RiskAnalysisResult: 카테고리별 위험도가 포함된 분석 결과
         """
         try:
-            logger.info(f"위험도 분석 시작 - user_id: {user_info.user_id}, home_id: {property_info.home_id}")
+            logger.info(f"카테고리별 위험도 분석 시작 - user_id: {user_info.user_id}, home_id: {property_info.home_id}")
             
-            # OK 1. 주소 검증 먼저 수행 (LLM 프롬프트에서도 사용하기 위함)
+            # 1. 주소 검증 먼저 수행
             address_match = self.address_verifier.verify_three_addresses(
                 property_info.address,
                 registry_data.region_address,
@@ -434,79 +345,159 @@ class RiskAnalysisModel:
                 "주소 정보는 행정안전부 API 기준 서로 다른 위치로 확인되었습니다. 추가 검토가 필요합니다."
             )
             
-            # 1. 우선순위 기반 위험도 판정 (API 주소 검증 포함)
-            risk_level = self._determine_risk_level_by_priority(
-            user_info, property_info, registry_data, building_data, address_match
+            # 2. 카테고리별 개별 위험도 분석 (한 번만 수행)
+            category_risks = self._analyze_category_risks(
+                user_info, property_info, registry_data, building_data, address_match
             )
             
-            # 2. 관련 법령 검색
+            # 3. 카테고리별 위험도를 바탕으로 종합 위험도 결정 (로직 중복 제거)
+            overall_risk_level = self._determine_overall_risk_from_categories(category_risks)
+            
+            # 4. 관련 법령 검색
             relevant_laws = self._search_relevant_laws(registry_data, building_data)
             
-            # 3. LLM으로 상세 분석 수행
-            detail_analysis = self._analyze_details_with_llm(
-                user_info, property_info, registry_data, building_data, relevant_laws, risk_level, address_summary
+            # 5. LLM으로 카테고리별 상세 분석 수행
+            detail_analysis = self._analyze_details_with_llm_by_category(
+                user_info, property_info, registry_data, building_data, 
+                relevant_laws, category_risks, address_summary
             )
             
-            # 4. 위험도 메시지 생성
-            risk_message = self._generate_risk_message(risk_level)
+            # 6. 위험도 메시지 생성
+            risk_message = self._generate_risk_message(overall_risk_level)
+            
             
             result = RiskAnalysisResult(
-                risk_level=risk_level,
+                risk_level=overall_risk_level,
                 risk_message=risk_message,
-                detail_analysis=detail_analysis,
-                confidence_score=0.9 if risk_level != RiskLevel.WARN else 0.7
+                detail_analysis=detail_analysis
             )
             
-            logger.info(f"위험도 분석 완료 - 결과: {result.risk_level}")
+            logger.info(f"카테고리별 위험도 분석 완료 - 종합결과: {result.risk_level}")
+            logger.info(f"카테고리별 결과: {category_risks}")
             return result
             
         except Exception as e:
-            logger.error(f"위험도 분석 실패: {e}")
+            logger.error(f"카테고리별 위험도 분석 실패: {e}")
             return self._get_fallback_result()
     
-    def _determine_risk_level_by_priority(self, 
-                                        user_info: UserInfo,
-                                        property_info: PropertyInfo, 
-                                        registry_data: RegistryData, 
-                                        building_data: BuildingData,
-                                        address_match: bool) -> RiskLevel:
-        """우선순위 기반 위험도 판정 (API 주소 검증 포함)"""
+    def _analyze_category_risks(self, user_info, property_info, registry_data, building_data, address_match) -> Dict[str, RiskLevel]:
+        """
+        각 카테고리별 개별 위험도 분석 (통합된 단일 분석 로직)
         
-        # 1순위: 소유자 검증
+        Returns:
+            Dict[str, RiskLevel]: 카테고리별 위험도 매핑
+        """
+        category_risks = {}
+        
+        # 1. 기본정보 카테고리 위험도 (소유자 검증 + 주소 일치성)
+        logger.info("=== 기본정보 카테고리 분석 ===")
+        basic_risk = RiskLevel.SAFE
+        
         if property_info.registered_user_name != registry_data.owner_name:
-            logger.warning(f"소유자 불일치 감지: {property_info.registered_user_name} ≠ {registry_data.owner_name}")
-            return RiskLevel.DANGER
+            logger.warning(f"소유자 불일치: {property_info.registered_user_name} ≠ {registry_data.owner_name}")
+            basic_risk = RiskLevel.DANGER
+        elif not address_match:
+            logger.warning("주소 불일치 (API 검증)")
+            basic_risk = RiskLevel.DANGER
+        else:
+            logger.info("소유자 일치 및 주소 검증 완료")
+            
+        category_risks['basic_info'] = basic_risk
         
-        # 2순위: 근저당권 비율
+        # 2. 권리관계 카테고리 위험도 (근저당권 + 권리제한)
+        logger.info("=== 권리관계 카테고리 분석 ===")
+        rights_risk = RiskLevel.SAFE
+        
+        # 근저당권 비율 계산
         mortgage_ratio = self._calculate_mortgage_risk_ratio(registry_data, property_info)
+        logger.info(f"근저당권 비율: {mortgage_ratio:.1f}%")
+        
         if mortgage_ratio >= 70:
             logger.warning(f"근저당 비율 위험: {mortgage_ratio:.1f}%")
-            return RiskLevel.DANGER
+            rights_risk = RiskLevel.DANGER
         elif mortgage_ratio > 30:
             logger.info(f"근저당 비율 주의: {mortgage_ratio:.1f}%")
-            current_risk = RiskLevel.WARN
-        else:
-            current_risk = RiskLevel.SAFE
+            rights_risk = RiskLevel.WARN
         
-        # 3순위: 권리제한 확인
-        if any([registry_data.has_seizure, registry_data.has_auction, 
-               registry_data.has_litigation, registry_data.has_attachment]):
-            logger.warning("권리제한 사항 발견")
-            return RiskLevel.DANGER
+        # 권리제한 확인 (더 높은 우선순위)
+        legal_restrictions = [
+            ("가압류", registry_data.has_seizure),
+            ("경매", registry_data.has_auction), 
+            ("소송", registry_data.has_litigation),
+            ("압류", registry_data.has_attachment)
+        ]
         
-        # 4순위: 주소 일치성
-        if not address_match:
-            logger.warning("주소 불일치 감지 (API 검증)")
-            return RiskLevel.DANGER  # 즉시 반환
-
-        # 5순위: 위반건축물  
+        active_restrictions = [name for name, status in legal_restrictions if status]
+        if active_restrictions:
+            logger.warning(f"권리제한 사항 발견: {', '.join(active_restrictions)}")
+            rights_risk = RiskLevel.DANGER  # 권리제한이 있으면 무조건 위험
+        
+        category_risks['rights_info'] = rights_risk
+        
+        # 3. 건축관련 카테고리 위험도 (위반건축물 + 용도 일치성)
+        logger.info("=== 건축관련 카테고리 분석 ===")
+        building_risk = RiskLevel.SAFE
+        
         if building_data.is_violation_building:
             logger.warning("위반건축물 감지")
-            return RiskLevel.DANGER
+            building_risk = RiskLevel.DANGER
+        elif not self._check_building_purpose_match(building_data.purpose, property_info.residence_type):
+            logger.info(f"용도 불일치: 건축물({building_data.purpose}) vs 매물타입({property_info.residence_type})")
+            building_risk = RiskLevel.WARN
+        else:
+            logger.info("건축물 적법성 및 용도 일치 확인")
+            
+        category_risks['building_info'] = building_risk
         
-        return current_risk
+        # 4. 법령위험 카테고리 위험도 (전세사기 패턴 + 기타 법적 위험)
+        logger.info("=== 법령위험 카테고리 분석 ===")
+        legal_risk = RiskLevel.SAFE
+        
+        # 전세사기 고위험 패턴 체크
+        if self._check_jeonse_fraud_pattern(registry_data, property_info):
+            logger.warning("전세사기 고위험 패턴 감지")
+            legal_risk = RiskLevel.WARN
+        else:
+            logger.info("전세사기 위험 패턴 없음")
+        
+        category_risks['legal_info'] = legal_risk
+        
+        return category_risks
     
-    def _calculate_mortgage_risk_ratio(self, registry_data: RegistryData, property_info: PropertyInfo) -> float:
+    def _determine_overall_risk_from_categories(self, category_risks: Dict[str, RiskLevel]) -> RiskLevel:
+        """
+        카테고리별 위험도를 바탕으로 종합 위험도 결정 (논리적 흐름)
+        
+        Args:
+            category_risks: 카테고리별 위험도 딕셔너리
+            
+        Returns:
+            RiskLevel: 종합 위험도
+        """
+        # 위험도 우선순위: DANGER > WARN > SAFE
+        risk_counts = {
+            RiskLevel.DANGER: 0,
+            RiskLevel.WARN: 0,
+            RiskLevel.SAFE: 0
+        }
+        
+        # 각 카테고리별 위험도 카운트
+        for category, risk_level in category_risks.items():
+            risk_counts[risk_level] += 1
+            logger.info(f"카테고리 '{category}': {risk_level.value}")
+        
+        # 종합 위험도 결정 로직
+        if risk_counts[RiskLevel.DANGER] > 0:
+            logger.warning(f"DANGER 카테고리 {risk_counts[RiskLevel.DANGER]}개 발견 → 종합 위험도: DANGER")
+            return RiskLevel.DANGER
+        elif risk_counts[RiskLevel.WARN] > 0:
+            logger.info(f"WARN 카테고리 {risk_counts[RiskLevel.WARN]}개 발견 → 종합 위험도: WARN")
+            return RiskLevel.WARN
+        else:
+            logger.info("모든 카테고리 안전 → 종합 위험도: SAFE")
+            return RiskLevel.SAFE
+    
+    def _calculate_mortgage_risk_ratio(self, registry_data, property_info) -> float:
         """근저당권 위험 비율 정확한 계산 (모든 근저당권 합산)"""
         if not registry_data.mortgagee_list or not property_info.deposit_price:
             return 0.0
@@ -522,7 +513,32 @@ class RiskAnalysisModel:
             
         return (total_max_claim_amount / property_info.deposit_price) * 100
     
-    def _search_relevant_laws(self, registry_data: RegistryData, building_data: BuildingData) -> List[Dict]:
+    def _check_building_purpose_match(self, building_purpose: str, residence_type: str) -> bool:
+        """건축물 용도와 매물 타입 일치성 확인"""
+        purpose_mapping = {
+            "APARTMENT": ["아파트", "공동주택"],
+            "OFFICETEL": ["오피스텔", "업무시설"],
+            "VILLA": ["다세대주택", "연립주택"],
+            "ONE_ROOM": ["원룸", "단독주택", "다가구주택"]
+        }
+        
+        expected_purposes = purpose_mapping.get(residence_type, [])
+        return any(purpose in building_purpose for purpose in expected_purposes)
+    
+    def _check_jeonse_fraud_pattern(self, registry_data, property_info) -> bool:
+        """전세사기 고위험 패턴 체크"""
+        # 전세인데 근저당권이 많거나, 소유자와 채무자가 다른 경우 등
+        if property_info.lease_type == "JEONSE":
+            if registry_data.mortgagee_list and len(registry_data.mortgagee_list) > 2:
+                return True
+            
+            if (registry_data.debtor and registry_data.owner_name and 
+                registry_data.debtor != registry_data.owner_name):
+                return True
+        
+        return False
+    
+    def _search_relevant_laws(self, registry_data, building_data) -> List[Dict]:
         """상황별 맞춤 법령 검색"""
         if not self.vectorstore:
             return []
@@ -551,24 +567,18 @@ class RiskAnalysisModel:
             logger.error(f"법령 검색 실패: {e}")
             return []
     
-    def _analyze_details_with_llm(self, 
-                                 user_info: UserInfo,
-                                 property_info: PropertyInfo,
-                                 registry_data: RegistryData, 
-                                 building_data: BuildingData,
-                                 relevant_laws: List[Dict],
-                                 risk_level: RiskLevel,
-                                 address_summary: str) -> DetailAnalysisResult:
-        """LLM을 사용한 4개 카테고리 상세 분석"""
+    def _analyze_details_with_llm_by_category(self, user_info, property_info, registry_data, building_data, 
+                                            relevant_laws, category_risks, address_summary):
+        """LLM을 사용한 카테고리별 상세 분석 (개별 위험도 포함)"""
         
-        # 상세 분석 프롬프트 템플릿
-        detail_analysis_prompt = PromptTemplate(
+        # 카테고리별 개별 분석 프롬프트 템플릿
+        category_analysis_prompt = PromptTemplate(
             input_variables=["user_info", "property_info", "registry_info", "building_info", 
-                           "relevant_laws", "risk_level", "mortgage_ratio","address_summary"],
+                           "relevant_laws", "category_risks", "mortgage_ratio", "address_summary"],
             template="""
-당신은 부동산 전문가입니다. 위험도가 '{risk_level}'로 판정된 매물에 대해 4개 카테고리별 상세 분석을 수행해주세요.
+당신은 부동산 전문가입니다. 4개 카테고리별로 개별 위험도가 판정된 매물에 대해 상세 분석을 수행해주세요.
 
-## 📊 분석 데이터:
+## 분석 데이터:
 **사용자 정보**: {user_info}
 **매물 정보**: {property_info}
 **등기부등본**: {registry_info}
@@ -576,22 +586,23 @@ class RiskAnalysisModel:
 **근저당 비율**: {mortgage_ratio:.1f}%
 **관련 법령**: {relevant_laws}
 **주소 정합성**: {address_summary}
+**카테고리별 위험도**: {category_risks}
 
-## 📋 카테고리별 분석
+## 카테고리별 분석
 
-### 1. 기본정보 분석
+### 1. 기본정보 분석 
 **제목**: [소유자 검증 또는 주소 일치성 관련 적절한 제목]
 **내용**: 소유자 일치성과 주소 정합성을 중심으로 2~3문장으로 분석하세요.
 
-### 2. 권리관계 분석  
+### 2. 권리관계 분석
 **제목**: [근저당권 또는 권리제한 관련 적절한 제목]
 **내용**: 근저당권 비율과 가압류/경매/소송/압류 여부를 중심으로 2~3문장으로 분석하세요.
 
-### 3. 건축관련 분석
-**제목**: [건축물 적법성 또는 용도 관련 적절한 제목] 
+### 3. 건축관련 분석 
+**제목**: [건축물 적법성 또는 용도 관련 적절한 제목]
 **내용**: 위반건축물 여부와 매물 타입 일치성을 중심으로 2~3문장으로 분석하세요.
 
-### 4. 법령위험 분석
+### 4. 법령위험 분석 
 **제목**: [관련 법령 또는 준수사항 관련 적절한 제목]
 **내용**: 관련 법령을 바탕으로 주의사항이나 법적 위험요소를 2~3문장으로 분석하세요.
 
@@ -609,13 +620,13 @@ class RiskAnalysisModel:
         
         # LLM 호출
         try:
-            prompt = detail_analysis_prompt.format(
+            prompt = category_analysis_prompt.format(
                 user_info=user_info_str,
                 property_info=property_info_str,
                 registry_info=registry_info_str,
                 building_info=building_info_str,
                 relevant_laws=laws_info_str,
-                risk_level=risk_level.value,
+                category_risks=category_risks,
                 mortgage_ratio=mortgage_ratio,
                 address_summary=address_summary
             )
@@ -623,15 +634,15 @@ class RiskAnalysisModel:
             response = self.llm.invoke(prompt)
             analysis_text = response.content
             
-            # 응답 파싱
-            return self._parse_detail_analysis_response(analysis_text)
+            # 응답 파싱 후 카테고리별 위험도 추가
+            return self._parse_detail_analysis_response_with_categories(analysis_text, category_risks)
             
         except Exception as e:
-            logger.error(f"LLM 상세 분석 실패: {e}")
-            return self._get_fallback_detail_analysis()
+            logger.error(f"LLM 카테고리별 분석 실패: {e}")
+            return self._get_fallback_detail_analysis_with_categories(category_risks)
     
-    def _parse_detail_analysis_response(self, response_text: str) -> DetailAnalysisResult:
-        """LLM 상세 분석 응답 파싱"""
+    def _parse_detail_analysis_response_with_categories(self, response_text: str, category_risks: Dict[str, RiskLevel]):
+        """LLM 상세 분석 응답 파싱 (카테고리별 위험도 포함)"""
         try:
             # 기본값 설정
             result = {
@@ -667,21 +678,77 @@ class RiskAnalysisModel:
                     content_match = re.search(r'\*\*내용\*\*:\s*(.+?)(?:\n### |$)', section_content, re.DOTALL)
                     if content_match:
                         result[f'{section_name}_content'] = content_match.group(1).strip()
+
+            
+            basic_info = CategoryAnalysisResult(
+                title=result['basic_info_title'],
+                content=result['basic_info_content'],
+                risk_level=category_risks['basic_info']
+            )
+            
+            rights_info = CategoryAnalysisResult(
+                title=result['rights_info_title'],
+                content=result['rights_info_content'],
+                risk_level=category_risks['rights_info']
+            )
+            
+            building_info = CategoryAnalysisResult(
+                title=result['building_info_title'],
+                content=result['building_info_content'],
+                risk_level=category_risks['building_info']
+            )
+            
+            legal_info = CategoryAnalysisResult(
+                title=result['legal_info_title'],
+                content=result['legal_info_content'],
+                risk_level=category_risks['legal_info']
+            )
             
             return DetailAnalysisResult(
-                basic_info_title=result['basic_info_title'],
-                basic_info_content=result['basic_info_content'],
-                rights_info_title=result['rights_info_title'],
-                rights_info_content=result['rights_info_content'],
-                building_info_title=result['building_info_title'],
-                building_info_content=result['building_info_content'],
-                legal_info_title=result['legal_info_title'],
-                legal_info_content=result['legal_info_content']
+                basic_info=basic_info,
+                rights_info=rights_info,
+                building_info=building_info,
+                legal_info=legal_info
             )
             
         except Exception as e:
-            logger.error(f"상세 분석 응답 파싱 실패: {e}")
-            return self._get_fallback_detail_analysis()
+            logger.error(f"카테고리별 상세 분석 응답 파싱 실패: {e}")
+            return self._get_fallback_detail_analysis_with_categories(category_risks)
+    
+    def _get_fallback_detail_analysis_with_categories(self, category_risks: Dict[str, RiskLevel]):
+        """오류시 기본 상세 분석 (카테고리별 위험도 포함)"""
+        from generators.risk_report import CategoryAnalysisResult, DetailAnalysisResult
+        
+        basic_info = CategoryAnalysisResult(
+            title="기본 정보 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=category_risks.get('basic_info', RiskLevel.WARN)
+        )
+        
+        rights_info = CategoryAnalysisResult(
+            title="권리관계 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=category_risks.get('rights_info', RiskLevel.WARN)
+        )
+        
+        building_info = CategoryAnalysisResult(
+            title="건축물 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=category_risks.get('building_info', RiskLevel.WARN)
+        )
+        
+        legal_info = CategoryAnalysisResult(
+            title="법령 준수 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=category_risks.get('legal_info', RiskLevel.WARN)
+        )
+        
+        return DetailAnalysisResult(
+            basic_info=basic_info,
+            rights_info=rights_info,
+            building_info=building_info,
+            legal_info=legal_info
+        )
     
     def _generate_risk_message(self, risk_level: RiskLevel) -> str:
         """위험도별 메시지 생성"""
@@ -692,11 +759,11 @@ class RiskAnalysisModel:
         }
         return messages.get(risk_level, "분석을 완료했습니다")
     
-    def _format_user_info(self, user_info: UserInfo) -> str:
+    def _format_user_info(self, user_info) -> str:
         """사용자 정보 포맷팅"""
         return f"사용자 ID: {user_info.user_id}, 유형: {'임대인' if user_info.user_type == 'landlord' else '임차인'}"
     
-    def _format_property_info(self, property_info: PropertyInfo) -> str:
+    def _format_property_info(self, property_info) -> str:
         """매물 정보 포맷팅"""
         return f"""
 매물 ID: {property_info.home_id}
@@ -705,7 +772,7 @@ class RiskAnalysisModel:
 보증금: {f'{property_info.deposit_price:,}원' if property_info.deposit_price else '0원'}
 """
     
-    def _format_registry_data(self, data: RegistryData) -> str:
+    def _format_registry_data(self, data) -> str:
         """등기부등본 데이터 포맷팅"""
         # 근저당권 정보 포맷팅
         mortgage_info = ""
@@ -729,7 +796,7 @@ class RiskAnalysisModel:
 권리제한: 가압류({data.has_seizure}), 경매({data.has_auction}), 소송({data.has_litigation}), 압류({data.has_attachment})
 """
     
-    def _format_building_data(self, data: BuildingData) -> str:
+    def _format_building_data(self, data) -> str:
         """건축물대장 데이터 포맷팅"""
         return f"""
 대지위치: {data.site_location}
@@ -752,112 +819,22 @@ class RiskAnalysisModel:
         
         return "\n".join(formatted)
     
-    def _get_fallback_detail_analysis(self) -> DetailAnalysisResult:
-        """오류시 기본 상세 분석"""
-        return DetailAnalysisResult(
-            basic_info_title="기본 정보 확인",
-            basic_info_content="분석 중 오류가 발생했습니다.",
-            rights_info_title="권리관계 확인", 
-            rights_info_content="분석 중 오류가 발생했습니다.",
-            building_info_title="건축물 확인",
-            building_info_content="분석 중 오류가 발생했습니다.",
-            legal_info_title="법령 준수 확인",
-            legal_info_content="분석 중 오류가 발생했습니다."
-        )
-    
-    def _get_fallback_result(self) -> RiskAnalysisResult:
+    def _get_fallback_result(self):
         """오류시 기본 결과"""
+        from generators.risk_report import RiskAnalysisResult, DetailAnalysisResult, CategoryAnalysisResult
+        
+        # 기본 카테고리별 위험도
+        default_category_risks = {
+            'basic_info': RiskLevel.WARN,
+            'rights_info': RiskLevel.WARN,
+            'building_info': RiskLevel.WARN,
+            'legal_info': RiskLevel.WARN
+        }
+        
+        detail_analysis = self._get_fallback_detail_analysis_with_categories(default_category_risks)
+        
         return RiskAnalysisResult(
             risk_level=RiskLevel.WARN,
             risk_message="분석 중 오류가 발생했습니다",
-            detail_analysis=self._get_fallback_detail_analysis(),
-            confidence_score=0.0
+            detail_analysis=detail_analysis
         )
-
-
-# 사용 예제
-if __name__ == "__main__":
-    # 환경 변수 확인
-    juso_api_key = os.getenv("JUSO_API_KEY")
-    google_api_key = os.getenv("GOOGLE_API_KEY")
-    
-    print(f"JUSO_API_KEY set: {'Yes' if juso_api_key else 'No'}")
-    print(f"GOOGLE_API_KEY set: {'Yes' if google_api_key else 'No'}")
-    
-    if not juso_api_key:
-        print("Warning: JUSO_API_KEY is not set in .env file.")
-    if not google_api_key:
-        print("Warning: GOOGLE_API_KEY is not set in .env file.")
-    
-    # 테스트용 데이터
-    user_info = UserInfo(user_id=1, user_type="tenant")
-    
-    property_info = PropertyInfo(
-        home_id=1,
-        address="서울특별시 송파구 신천동 29 롯데월드타워앤드롯데월드몰",
-        registered_user_name="홍길동",
-        residence_type="APARTMENT",
-        lease_type="JEONSE",
-        deposit_price=800000000
-    )
-    
-    registry_data = RegistryData(
-        region_address="서울특별시 송파구 신천동 29",  # 지번주소
-        road_address="서울특별시 송파구 올림픽로 300",     # 도로명주소
-        owner_name="홍길동",  # 일치
-        debtor="홍길동",  # 채무자
-        mortgagee_list=[
-            MortgageeInfo(
-                priority_number=1,
-                debtor="홍길동",
-                max_claim_amount=2000000000,  # 25% 비율 (안전)
-                mortgagee="KB국민은행"
-            )
-        ],
-        has_seizure=False
-    )
-    
-    building_data = BuildingData(
-        site_location="서울특별시 송파구 신천동",
-        road_address="서울특별시 송파구 올림픽로 300 (신천동)",
-        total_floor_area=84.5,
-        purpose="아파트",
-        floor_number=15,
-        is_violation_building=False
-    )
-    
-    # 분석 실행
-    if juso_api_key and google_api_key:
-        try:
-            model = RiskAnalysisModel()
-            result = model.analyze_risk(
-                user_info=user_info,
-                property_info=property_info,
-                registry_data=registry_data,
-                building_data=building_data
-            )
-            
-            print("\n=== 위험도 분석 결과 ===")
-            print(f"위험도: {result.risk_level}")
-            print(f"메시지: {result.risk_message}")
-            print(f"신뢰도: {result.confidence_score}")
-            print(f"\n기본정보: {result.detail_analysis.basic_info_title}")
-            print(f"내용: {result.detail_analysis.basic_info_content}")
-            print(f"\n권리관계: {result.detail_analysis.rights_info_title}")
-            print(f"내용: {result.detail_analysis.rights_info_content}")
-            
-        except Exception as e:
-            print(f"ERROR 분석 실행 실패: {e}")
-    else:
-        print("ERROR API 키가 설정되지 않아 분석을 실행할 수 없습니다.")
-        
-        # 주소 검증기만 테스트
-        if juso_api_key:
-            print("\n=== 주소 검증 테스트 ===")
-            verifier = JusoApiAddressVerifier()
-            result = verifier.verify_three_addresses(
-                "서울특별시 광진구 군자동 98-38",
-                "서울특별시 광진구 능동로 195-16", 
-                "서울특별시 광진구 능동로 195-16 (군자동)"
-            )
-            print(f"주소 일치 결과: {result}")

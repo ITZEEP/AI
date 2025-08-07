@@ -1,45 +1,119 @@
 """
-generators/risk_report.py - Spring 포맷 변환 및 데이터 파싱
+generators/risk_report.py - Spring 포맷 변환 및 데이터 파싱 (완전한 정적 메서드 버전)
 
 역할:
 1. Spring DTO → AI 모델 데이터 변환
-2. AI 모델 결과 → Spring DetailGroup 포맷 변환
+2. AI 모델 결과 → Spring DetailGroup 포맷 변환 (카테고리별 위험도 포함)
 3. 데이터 파싱 및 검증
 """
 import sys
 import re
 import os
 import logging
-from typing import Dict, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional, List
+from datetime import datetime, date
+from dataclasses import dataclass
+from enum import Enum
+from model.risk_model import RiskAnalysisModel
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-# 내부 모듈
-from model.risk_model import (
-    RiskAnalysisModel, 
-    UserInfo, 
-    PropertyInfo, 
-    RegistryData, 
-    BuildingData,
-    RiskAnalysisResult,
-    RiskLevel,
-    MortgageeInfo
-)
 
 logger = logging.getLogger(__name__)
 
 
+class RiskLevel(str, Enum):
+    """위험도 등급"""
+    SAFE = "SAFE"      # 안전
+    WARN = "WARN"      # 주의
+    DANGER = "DANGER"  # 위험
+
+
+@dataclass
+class UserInfo:
+    """사용자 정보"""
+    user_id: int
+    user_type: str  # "landlord" or "tenant"
+
+
+@dataclass
+class PropertyInfo:
+    """매물 정보 (Spring DB에서 가져온 실제 등록 정보)"""
+    home_id: int
+    address: str                          # 등록된 주소 (addr1 + addr2)
+    registered_user_name: str             # 매물 등록한 사람 이름
+    residence_type: str                   # "APARTMENT", "OFFICETEL" 등
+    lease_type: str                       # "JEONSE" or "WOLSE"
+    deposit_price: Optional[int] = None   # 보증금
+    monthly_rent: Optional[int] = None    # 월세
+    maintenance_fee: Optional[int] = None # 관리비
+
+
+@dataclass
+class MortgageeInfo:
+    """근저당권 정보"""
+    priority_number: int          # 순위번호
+    debtor: str                               # 채무자 (필수)
+    max_claim_amount: Optional[int] = None    # 채권최고액
+    mortgagee: Optional[str] = None           # 근저당권자
+
+
+@dataclass
+class RegistryData:
+    """등기부등본 데이터 (Spring에서 사용자 검증 완료된 데이터)"""
+    region_address: str                   # 소재지번
+    road_address: str                     # 도로명주소
+    owner_name: str                       # 소유자명
+    owner_birth_date: Optional[date] = None
+    debtor: Optional[str] = None              # 채무자 (첫 번째 근저당권의 채무자)
+    mortgagee_list: Optional[List[MortgageeInfo]] = None  # 근저당권 목록
+    has_seizure: bool = False                 # 가압류 여부
+    has_auction: bool = False                 # 경매 여부
+    has_litigation: bool = False              # 소송 여부
+    has_attachment: bool = False              # 압류 여부
+
+
+@dataclass
+class BuildingData:
+    """건축물대장 데이터 (Spring에서 사용자 검증 완료된 데이터)"""
+    site_location: str                    # 대지위치
+    road_address: str                     # 도로명주소
+    total_floor_area: float               # 연면적
+    purpose: str                          # 용도
+    floor_number: int                     # 층수
+    approval_date: Optional[date] = None  # 사용승인일
+    is_violation_building: bool = False   # 위반건축물 여부
+
+
+@dataclass
+class CategoryAnalysisResult:
+    """개별 카테고리 분석 결과"""
+    title: str                            # 카테고리 제목
+    content: str                          # 카테고리 내용
+    risk_level: RiskLevel                 # 카테고리별 위험도
+
+
+@dataclass
+class DetailAnalysisResult:
+    """카테고리별 상세 분석 결과"""
+    basic_info: CategoryAnalysisResult    # 기본정보 분석
+    rights_info: CategoryAnalysisResult   # 권리관계 분석
+    building_info: CategoryAnalysisResult # 건축관련 분석
+    legal_info: CategoryAnalysisResult    # 법령위험 분석
+
+
+@dataclass
+class RiskAnalysisResult:
+    """종합 위험도 분석 결과"""
+    risk_level: RiskLevel                 # 종합 위험도
+    risk_message: str                     # 위험도 메시지 
+    detail_analysis: DetailAnalysisResult # 4개 카테고리 분석
+
+
 class RiskReportGenerator:
-    """위험도 분석 리포트 생성기 - Spring 연동 전용"""
+    """위험도 분석 리포트 생성기 - Spring 연동 전용 (완전한 정적 메서드 버전)"""
     
-    def __init__(self):
-        """위험도 분석 모델 초기화"""
-        self.risk_model = RiskAnalysisModel()
-        logger.info("RiskReportGenerator 초기화 완료")
-    
-    def generate_spring_risk_report(self, 
-                                   user_id: int,
+    @staticmethod
+    def generate_spring_risk_report(user_id: int,
                                    user_type: str,
                                    home_id: int,
                                    address: str,
@@ -67,45 +141,48 @@ class RiskReportGenerator:
             monthly_rent: 월세 금액 (월세인 경우에만)
             
         Returns:
-            Spring DetailGroup 형태의 분석 결과
+            Spring DetailGroup 형태의 분석 결과 (카테고리별 위험도 포함)
         """
         try:
             logger.info(f"Spring 위험도 분석 시작 - user_id: {user_id}, home_id: {home_id}, lease_type: {lease_type}")
         
             # 1. Spring DTO를 AI 모델 데이터로 변환
-            user_info = self._parse_user_info(user_id, user_type)
-            property_info = self._parse_property_info(home_id, address, property_price, 
+            user_info = RiskReportGenerator._parse_user_info(user_id, user_type)
+            property_info = RiskReportGenerator._parse_property_info(home_id, address, property_price, 
                                                      lease_type, registered_user_name, 
                                                      residence_type, monthly_rent)
-            registry_data = self._parse_spring_registry_dto(spring_registry_dto)
-            building_data = self._parse_spring_building_dto(spring_building_dto)
+            registry_data = RiskReportGenerator._parse_spring_registry_dto(spring_registry_dto)
+            building_data = RiskReportGenerator._parse_spring_building_dto(spring_building_dto)
             
-            # 2. AI 모델로 위험도 분석 (새로운 상세 분석 포함)
-            analysis_result = self.risk_model.analyze_risk(
+            # 2. AI 모델로 위험도 분석 (카테고리별 분석 포함)
+            risk_model = RiskAnalysisModel()
+            analysis_result = risk_model.analyze_risk_with_categories(
                 user_info=user_info,
                 property_info=property_info,
                 registry_data=registry_data,
                 building_data=building_data
             )
             
-            # 3. Spring DetailGroup 형태로 변환
-            spring_response = self._convert_to_spring_format(analysis_result)
+            # 3. Spring DetailGroup 형태로 변환 (카테고리별 위험도 포함)
+            spring_response = RiskReportGenerator._convert_to_spring_format_with_categories(analysis_result)
             
             logger.info(f"Spring 위험도 분석 완료 - 결과: {analysis_result.risk_level}")
             return spring_response
         
         except Exception as e:
             logger.error(f"Spring 위험도 분석 실패: {e}")
-            return self._get_spring_fallback_response()
+            return RiskReportGenerator._get_spring_fallback_response()
     
-    def _parse_user_info(self, user_id: int, user_type: str) -> UserInfo:
+    @staticmethod
+    def _parse_user_info(user_id: int, user_type: str) -> UserInfo:
         """사용자 정보 파싱"""
         return UserInfo(
             user_id=user_id,
             user_type=user_type
         )
     
-    def _parse_property_info(self, home_id: int, address: str, 
+    @staticmethod
+    def _parse_property_info(home_id: int, address: str, 
                            property_price: Optional[int], lease_type: Optional[str],
                            registered_user_name: str, residence_type: str,
                            monthly_rent: Optional[int] = None) -> PropertyInfo:
@@ -133,7 +210,8 @@ class RiskReportGenerator:
             monthly_rent=monthly_rent_amount
         )
     
-    def _parse_spring_registry_dto(self, spring_dto: Dict[str, Any]) -> RegistryData:
+    @staticmethod
+    def _parse_spring_registry_dto(spring_dto: Dict[str, Any]) -> RegistryData:
         """Spring RegistryDocumentDto → RegistryData 변환"""
         try:
             # 생년월일 파싱
@@ -183,7 +261,8 @@ class RiskReportGenerator:
                 debtor=""
             )
     
-    def _parse_spring_building_dto(self, spring_dto: Dict[str, Any]) -> BuildingData:
+    @staticmethod
+    def _parse_spring_building_dto(spring_dto: Dict[str, Any]) -> BuildingData:
         """Spring BuildingDocumentDto → BuildingData 변환"""
         try:
             # 사용승인일 파싱
@@ -229,26 +308,29 @@ class RiskReportGenerator:
                 floor_number=0
             )
     
-    def _convert_to_spring_format(self, analysis_result: RiskAnalysisResult) -> Dict[str, Any]:
-        """AI 분석 결과를 Spring DetailGroup 형태로 변환"""
+    @staticmethod
+    def _convert_to_spring_format_with_categories(analysis_result: RiskAnalysisResult) -> Dict[str, Any]:
+        """AI 분석 결과를 Spring DetailGroup 형태로 변환 (아이템별 위험도만 포함)"""
         
-        # Spring DetailGroup 구조 생성 (이미지와 동일한 4개 카테고리)
+        # Spring DetailGroup 구조 생성 (아이템별 위험도만 포함)
         detail_groups = [
             {
                 "title": "기본 정보",
                 "items": [
                     {
-                        "title": analysis_result.detail_analysis.basic_info_title,
-                        "content": analysis_result.detail_analysis.basic_info_content
+                        "title": analysis_result.detail_analysis.basic_info.title,
+                        "content": analysis_result.detail_analysis.basic_info.content,
+                        "riskLevel": analysis_result.detail_analysis.basic_info.risk_level.value
                     }
                 ]
             },
             {
-                "title": "권리관계 정보", 
+                "title": "권리관계 정보",
                 "items": [
                     {
-                        "title": analysis_result.detail_analysis.rights_info_title,
-                        "content": analysis_result.detail_analysis.rights_info_content
+                        "title": analysis_result.detail_analysis.rights_info.title,
+                        "content": analysis_result.detail_analysis.rights_info.content,
+                        "riskLevel": analysis_result.detail_analysis.rights_info.risk_level.value
                     }
                 ]
             },
@@ -256,8 +338,9 @@ class RiskReportGenerator:
                 "title": "건축 관련",
                 "items": [
                     {
-                        "title": analysis_result.detail_analysis.building_info_title,
-                        "content": analysis_result.detail_analysis.building_info_content
+                        "title": analysis_result.detail_analysis.building_info.title,
+                        "content": analysis_result.detail_analysis.building_info.content,
+                        "riskLevel": analysis_result.detail_analysis.building_info.risk_level.value
                     }
                 ]
             },
@@ -265,8 +348,9 @@ class RiskReportGenerator:
                 "title": "법령 위험",
                 "items": [
                     {
-                        "title": analysis_result.detail_analysis.legal_info_title,
-                        "content": analysis_result.detail_analysis.legal_info_content
+                        "title": analysis_result.detail_analysis.legal_info.title,
+                        "content": analysis_result.detail_analysis.legal_info.content,
+                        "riskLevel": analysis_result.detail_analysis.legal_info.risk_level.value
                     }
                 ]
             }
@@ -276,33 +360,24 @@ class RiskReportGenerator:
             "riskType": analysis_result.risk_level.value,  # "SAFE", "WARN", "DANGER"
             "riskMessage": analysis_result.risk_message,   # "이 매물은 위험 상황입니다"
             "analyzedAt": datetime.now().isoformat(),
-            "confidenceScore": analysis_result.confidence_score,
             "detailGroups": detail_groups
         }
         
-    def _get_title_by_risk_level(self, risk_level: RiskLevel) -> str:
-        """위험도에 따른 제목 반환"""
-        title_map = {
-            RiskLevel.SAFE: "OK 안전한 매물",
-            RiskLevel.WARN: "WARNING 주의 필요",
-            RiskLevel.DANGER: "🚨 위험 매물"
-        }
-        return title_map.get(risk_level, "분석 완료")
-    
-    def _get_spring_fallback_response(self) -> Dict[str, Any]:
+    @staticmethod
+    def _get_spring_fallback_response() -> Dict[str, Any]:
         """오류시 Spring 기본 응답"""
         return {
             "riskType": "WARN",
             "riskMessage": "분석 중 오류가 발생했습니다",
             "analyzedAt": datetime.now().isoformat(),
-            "confidenceScore": 0.0,
             "detailGroups": [
                 {
                     "title": "기본 정보",
                     "items": [
                         {
                             "title": "시스템 오류",
-                            "content": "기본 정보 분석 중 오류가 발생했습니다."
+                            "content": "기본 정보 분석 중 오류가 발생했습니다.",
+                            "riskLevel": "WARN"
                         }
                     ]
                 },
@@ -311,7 +386,8 @@ class RiskReportGenerator:
                     "items": [
                         {
                             "title": "시스템 오류", 
-                            "content": "권리관계 분석 중 오류가 발생했습니다."
+                            "content": "권리관계 분석 중 오류가 발생했습니다.",
+                            "riskLevel": "WARN"
                         }
                     ]
                 },
@@ -320,16 +396,18 @@ class RiskReportGenerator:
                     "items": [
                         {
                             "title": "시스템 오류",
-                            "content": "건축물 분석 중 오류가 발생했습니다."
+                            "content": "건축물 분석 중 오류가 발생했습니다.",
+                            "riskLevel": "WARN"
                         }
                     ]
                 },
                 {
-                    "title": "법령 위험", 
+                    "title": "법령 위험",
                     "items": [
                         {
                             "title": "시스템 오류",
-                            "content": "법령 분석 중 오류가 발생했습니다. 전문가 상담을 권장합니다."
+                            "content": "법령 분석 중 오류가 발생했습니다. 전문가 상담을 권장합니다.",
+                            "riskLevel": "WARN"
                         }
                     ]
                 }
@@ -575,8 +653,7 @@ def generate_risk_report_for_spring(user_id: int,
                                    residence_type: str,
                                    monthly_rent: Optional[int] = None) -> Dict[str, Any]:
     """Spring용 위험도 분석 리포트 생성 편의 함수"""
-    generator = RiskReportGenerator()
-    return generator.generate_spring_risk_report(
+    return RiskReportGenerator.generate_spring_risk_report(
         user_id=user_id,
         user_type=user_type,
         home_id=home_id,
@@ -597,56 +674,3 @@ def parse_ocr_data_for_spring(registry_ocr_data: Dict[str, Any],
     registry_dto = OCRDataParser.parse_registry_ocr_to_spring_dto(registry_ocr_data)
     building_dto = OCRDataParser.parse_building_ocr_to_spring_dto(building_ocr_data)
     return registry_dto, building_dto
-
-
-# 사용 예제
-if __name__ == "__main__":
-    # OCR 파싱 테스트
-    registry_ocr_data = {
-        "갑구": [
-            [{"소유자명": "홍길동"}]
-        ],
-        "을구": [
-            [{"채권최고액": "금200,000,000원", "채무자": "홍길동", "근저당권자": "XX은행"}]
-        ],
-        "표제부": {
-            "소재지번_건물명칭": "서울특별시 광진구 군자동 98-38"
-        },
-        "법적상태": {
-            "가압류_여부": True,
-            "경매_여부": False,
-            "소송_여부": False,
-            "압류_여부": False
-        }
-    }
-    
-    building_ocr_data = {
-        "대지위치": "서울특별시 광진구 군자동 98-38",
-        "도로명주소": "서울특별시 광진구 능동로 195-16",
-        "연면적": 84.5,
-        "용도": ["아파트"],
-        "층수": "지하1층/지상15층",
-        "사용승인일": "2020.03.20",
-        "위반건축물여부": "아니오"
-    }
-    
-    # OCR 데이터 파싱
-    registry_dto, building_dto = parse_ocr_data_for_spring(registry_ocr_data, building_ocr_data)
-    
-    # 위험도 분석
-    result = generate_risk_report_for_spring(
-        user_id=1,
-        user_type="tenant",
-        home_id=1,
-        address="서울특별시 광진구 능동로 195-16",
-        property_price=800000000,
-        lease_type="JEONSE",
-        spring_registry_dto=registry_dto,
-        spring_building_dto=building_dto,
-        registered_user_name="홍길동",
-        residence_type="APARTMENT"
-    )
-    
-    print("=== 위험도 분석 결과 ===")
-    import json
-    print(json.dumps(result, indent=2, ensure_ascii=False))
