@@ -131,7 +131,7 @@ class ContractLegalChecker:
         try:
             all_laws = []
             
-            # 🆕 1. 핵심 임대차 법령들을 카테고리별로 포괄적 검색
+            #  1. 핵심 임대차 법령들을 카테고리별로 포괄적 검색
             comprehensive_queries = [
                 # 계약 체결 관련
                 "임대차계약 체결 당사자 권리의무",
@@ -169,7 +169,7 @@ class ContractLegalChecker:
                 all_laws.extend(laws)
                 logger.info(f"포괄적 검색 '{query}': {len(laws)}개 법령 수집")
             
-            # 🆕 2. 전세/월세 특화 법령
+            #  2. 전세/월세 특화 법령
             if is_jeonse:
                 specific_queries = [
                     "전세 전세보증금 전세권 설정",
@@ -187,7 +187,7 @@ class ContractLegalChecker:
                 laws = search_law(query, k=8)
                 all_laws.extend(laws)
             
-            # 🆕 3. 계약서 특정 내용 검출 시 해당 법령 추가 검색
+            #  3. 계약서 특정 내용 검출 시 해당 법령 추가 검색
             contract_lower = contract_text.lower()
             specific_queries = []
             
@@ -221,10 +221,10 @@ class ContractLegalChecker:
                 all_laws.extend(laws)
                 logger.info(f"특정 내용 검색 '{query}': {len(laws)}개 법령 수집")
             
-            # 🆕 4. 중복 제거 및 법령 다양성 확보
+            #  4. 중복 제거 및 법령 다양성 확보
             unique_laws = self._remove_duplicate_laws(all_laws)
             
-            # 🆕 5. 법령 소스 다양성 확인
+            #  5. 법령 소스 다양성 확인
             law_sources = {}
             for law in unique_laws:
                 source = law.get('law_name', '기타')
