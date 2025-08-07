@@ -17,6 +17,9 @@ from datetime import date
 from enum import Enum
 from dotenv import load_dotenv
 
+# risk_report.py의 구조를 import해서 사용
+from generators.risk_report import RiskAnalysisResult, CategoryAnalysisResult, DetailAnalysisResult
+
 # 프로젝트 루트 경로 설정
 current_file_path = os.path.abspath(__file__)
 project_root = os.path.dirname(os.path.dirname(current_file_path))
@@ -362,8 +365,6 @@ class RiskAnalysisModel:
             # 6. 위험도 메시지 생성
             risk_message = self._generate_risk_message(overall_risk_level)
             
-            # risk_report.py의 구조를 import해서 사용
-            from generators.risk_report import RiskAnalysisResult
             
             result = RiskAnalysisResult(
                 risk_level=overall_risk_level,
@@ -677,9 +678,7 @@ class RiskAnalysisModel:
                     content_match = re.search(r'\*\*내용\*\*:\s*(.+?)(?:\n### |$)', section_content, re.DOTALL)
                     if content_match:
                         result[f'{section_name}_content'] = content_match.group(1).strip()
-            
-            # CategoryAnalysisResult 객체들 생성
-            from generators.risk_report import CategoryAnalysisResult, DetailAnalysisResult
+
             
             basic_info = CategoryAnalysisResult(
                 title=result['basic_info_title'],

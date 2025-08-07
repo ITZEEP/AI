@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, date
 from dataclasses import dataclass
 from enum import Enum
+from model.risk_model import RiskAnalysisModel
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -154,7 +155,6 @@ class RiskReportGenerator:
             building_data = RiskReportGenerator._parse_spring_building_dto(spring_building_dto)
             
             # 2. AI 모델로 위험도 분석 (카테고리별 분석 포함)
-            from model.risk_model import RiskAnalysisModel
             risk_model = RiskAnalysisModel()
             analysis_result = risk_model.analyze_risk_with_categories(
                 user_info=user_info,
