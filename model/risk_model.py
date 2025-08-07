@@ -17,8 +17,8 @@ from datetime import date
 from enum import Enum
 from dotenv import load_dotenv
 
-# risk_report.py의 구조를 import해서 사용
-from generators.risk_report import RiskAnalysisResult, CategoryAnalysisResult, DetailAnalysisResult
+# Import shared data types from risk_types to avoid circular import
+from model.risk_types import RiskAnalysisResult, CategoryAnalysisResult, DetailAnalysisResult, RiskLevel
 
 # 프로젝트 루트 경로 설정
 current_file_path = os.path.abspath(__file__)
@@ -57,11 +57,6 @@ from config.logger_config import get_logger
 logger = get_logger(__name__)
 
 
-class RiskLevel(str, Enum):
-    """위험도 등급"""
-    SAFE = "SAFE"      # 안전
-    WARN = "WARN"      # 주의
-    DANGER = "DANGER"  # 위험
 
 
 class JusoApiAddressVerifier:
