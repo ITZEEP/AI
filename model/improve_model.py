@@ -23,6 +23,9 @@ from config.logger_config import get_logger
 logger = get_logger(__name__)
 from config.gemini_retry import retry_gemini_api
 
+# 표준조항 import
+from config.standard_clauses import STANDARD_CLAUSES
+
 # clause_improvement에서 데이터 클래스 import
 try:
     from generators.improve_report import (
@@ -150,7 +153,6 @@ class ClauseImprovementModel:
             }
             
             # 4. 키워드 매칭으로 관련 법령 쿼리 생성
-            import re
             for pattern, law_queries in law_keywords.items():
                 if re.search(pattern, full_text, re.IGNORECASE):
                     queries.extend(law_queries)
@@ -279,6 +281,15 @@ class ClauseImprovementModel:
 
 {law_context}
 
+# 표준계약서 필수조항:
+{standard_clauses}
+
+# 표준조항 준수 규칙:
+1. **표준조항과 동일한 내용의 특약은 만들지 마세요**
+2. **표준조항과 상충하는 내용의 특약은 만들지 마세요**  
+3. **표준조항에 없는 새로운 합의사항을 특약으로 만드세요**
+4. **표준조항을 구체화하거나 세부조건을 추가하는 것은 가능합니다**
+
 # 개선 목표:
 1. 대화에서 나타난 양측의 요구사항과 우려사항 반영
 2. 구체적이고 실행 가능한 조건으로 수정
@@ -296,12 +307,15 @@ class ClauseImprovementModel:
 3. 법적 권리와 의무의 균형
 4. 경제적 부담과 실행 가능성
 5. 분쟁 발생 시 각 당사자의 보호 정도
+6. 표준조항과의 관계 및 적법성
 
 ## 우리 시스템의 계약 구조 (중요!):
 - **전세 계약**: 보증금만 존재 (월세 없음)
 - **월세 계약**: 보증금 + 월세 존재
 - **계약금은 우리 시스템에 아예 없음** (시퀀스에 포함되지 않음)
 - **위약금은 오직 보증금 기준으로만 산정함**
+- **계약금, 잔금 내용은 절대 금지**
+- **직거래 계약이므로 중개보수 및 중개 내용 금지**
 
 # 답변 작성 가이드:
 - 대화 내용을 충분히 반영한 현실적인 개선안 제시
@@ -330,25 +344,32 @@ class ClauseImprovementModel:
         
         chain = prompt | self.llm | StrOutputParser()
         
-        try:
-            logger.debug(f"특약 개선 API 호출 - 라운드: {request.round}")
-            
-            # 재시도 로직이 적용된 API 호출
-            result = self._call_gemini_api_for_improvement(chain, {
-                "context": context,
-                "law_context": law_context
-            })
-            
-            logger.debug(f"특약 개선 API 완료 - 라운드: {request.round}")
-            
-            # 결과 파싱
-            improved_clause = self._parse_improvement_result(request, result)
-            return improved_clause
-            
-        except Exception as e:
-            logger.error(f"특약 개선 최종 실패: {e}")
-            return None
-    
+        for attempt in range(3):
+            try:
+                logger.debug(f"특약 개선 API 호출 - 라운드: {request.round}")
+                
+                # 재시도 로직이 적용된 API 호출
+                result = self._call_gemini_api_for_improvement(chain, {
+                    "context": context,
+                    "law_context": law_context,
+                    "standard_clauses": STANDARD_CLAUSES
+                })
+                
+                logger.debug(f"특약 개선 API 완료 - 라운드: {request.round}")
+                
+                # 결과 파싱
+                improved_clause = self._parse_improvement_result(request, result)
+                if improved_clause:
+                    return improved_clause
+                else:
+                    if attempt < 2:
+                        continue
+                
+            except Exception as e:
+                logger.error(f"특약 개선 최종 실패: {e}")
+                return None
+        return None
+        
     def _parse_improvement_result(self, 
                                 request: ClauseImprovementRequest, 
                                 llm_output: str) -> Optional[ImprovedClause]:

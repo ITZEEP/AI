@@ -26,6 +26,9 @@ from config.logger_config import get_logger
 logger = get_logger(__name__)
 from config.gemini_retry import retry_gemini_api
 
+# 표준조항 import
+from config.standard_clauses import STANDARD_CLAUSES
+
 # clause_report에서 파서 및 데이터 클래스 import
 try:
     from generators.clause_report import (
@@ -175,12 +178,28 @@ class ClauseAssessmentModel:
                 return self._assess_single_clause_with_retry(
                     clause_group[0], owner_context, tenant_context, group_llm
                 )
-            else:
-                # 여러 특약 배치 처리
-                return self._assess_multiple_clauses_with_retry(
-                    clause_group, owner_context, tenant_context, group_llm
-                )
+            else:               
+                for batch_attempt in range(3):
+                    try:
+                        # 배치 평가 실행
+                        assessments = self._assess_multiple_clauses_with_retry(
+                            clause_group, owner_context, tenant_context, group_llm
+                        )
+                        if len(assessments) == len(clause_group):
+                            return assessments
+                    except Exception as e:
+                        logger.error(f"배치 평가 시도 {batch_attempt + 1} 오류: {e}")
                 
+                fallback_assessments = []
+                for clause in clause_group:
+                    single_assessment = self._assess_single_clause_with_retry(
+                    clause, owner_context, tenant_context, group_llm
+                )
+                if single_assessment:
+                    fallback_assessments.extend(single_assessment)
+            
+                return fallback_assessments
+                    
         except Exception as e:
             logger.error(f"그룹 평가 실패: {e}")
             return []
@@ -206,6 +225,9 @@ class ClauseAssessmentModel:
 # 임차인 정보:
 {tenant_context}
 
+# 표준계약서 필수조항 (평가 시 참고):
+{standard_clauses}
+
 # 평가 기준:
 - **안심**: 해당 당사자에게 유리하거나 공정하고 균형적인 특약
 - **주의**: 해당 당사자에게 불리하거나 위험할 수 있는 특약
@@ -216,12 +238,21 @@ class ClauseAssessmentModel:
 3. 경제적 손익과 위험 요소
 4. 실무적 실행 가능성과 부담 정도
 5. 분쟁 발생 시 각 당사자의 보호 정도
+6. **표준조항과의 관계 및 적법성 (중요!)**
+
+# 표준조항 관련 평가 기준:
+- 표준조항과 중복되거나 모순되는 특약은 **주의** 등급
+- 표준조항을 구체화/보완하는 특약은 적절히 평가
+- 표준조항 범위를 벗어나는 새로운 내용은 내용에 따라 평가
+- 법적 효력이 없거나 무효인 특약은 **주의** 등급
 
 ## 우리 시스템의 계약 구조 (중요!):
 - **전세 계약**: 보증금만 존재 (월세 없음)
 - **월세 계약**: 보증금 + 월세 존재
 - **계약금은 우리 시스템에 아예 없음** (시퀀스에 포함되지 않음)
 - **위약금은 오직 보증금 기준으로만 산정함**
+- **계약금, 잔금 내용은 절대 금지**
+- **직거래 계약이므로 중개보수 및 중개 내용 금지**
 
 # 답변 작성 가이드:
 - 자연스럽고 실용적인 어조로 작성
@@ -251,7 +282,8 @@ class ClauseAssessmentModel:
                 "clause_title": clause.title,
                 "clause_content": clause.content,
                 "owner_context": owner_context,
-                "tenant_context": tenant_context
+                "tenant_context": tenant_context,
+                "standard_clauses": STANDARD_CLAUSES
             })
             
             logger.debug(f"단일 특약 평가 완료: {clause.title}")
@@ -295,6 +327,9 @@ class ClauseAssessmentModel:
 # 임차인 정보:
 {tenant_context}
 
+# 표준계약서 필수조항 (평가 시 참고):
+{standard_clauses}
+
 # 평가 기준:
 - **안심**: 해당 당사자에게 유리하거나 공정하고 균형적인 특약
 - **주의**: 해당 당사자에게 불리하거나 위험할 수 있는 특약
@@ -305,6 +340,21 @@ class ClauseAssessmentModel:
 3. 경제적 손익과 위험 요소
 4. 실무적 실행 가능성과 부담 정도
 5. 분쟁 발생 시 각 당사자의 보호 정도
+6. **표준조항과의 관계 및 적법성 (중요!)**
+
+# 표준조항 관련 평가 기준:
+- 표준조항과 중복되거나 모순되는 특약은 **주의** 등급
+- 표준조항을 구체화/보완하는 특약은 적절히 평가
+- 표준조항 범위를 벗어나는 새로운 내용은 내용에 따라 평가
+- 법적 효력이 없거나 무효인 특약은 **주의** 등급
+
+## 우리 시스템의 계약 구조 (중요!):
+- **전세 계약**: 보증금만 존재 (월세 없음)
+- **월세 계약**: 보증금 + 월세 존재
+- **계약금은 우리 시스템에 아예 없음** (시퀀스에 포함되지 않음)
+- **위약금은 오직 보증금 기준으로만 산정함**
+- **계약금, 잔금 내용은 절대 금지**
+- **직거래 계약이므로 중개보수 및 중개 내용 금지**
 
 # 답변 작성 가이드:
 - 자연스럽고 실용적인 어조로 작성
@@ -342,7 +392,8 @@ class ClauseAssessmentModel:
                 "owner_context": owner_context,
                 "tenant_context": tenant_context,
                 "clause_ids": clause_ids_str,
-                "format_example": format_example.strip()
+                "format_example": format_example.strip(),
+                "standard_clauses": STANDARD_CLAUSES
             })
             
             assessments = self._parse_batch_assessment_result(clause_group, result)
