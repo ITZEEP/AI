@@ -165,8 +165,3 @@ docker exec -it itzip-ai-service ls -la data/
 
 🌱 chore: (코드의 수정 없이) 설정 변경
 
-## 구성
-
-langchain/retriever.py 구성도
-
-<img width="323" height="212" alt="image" src="https://github.com/user-attachments/assets/35e99767-fdc7-4e73-8eaa-e8d25cb0cdfb" />
