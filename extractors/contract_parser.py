@@ -42,7 +42,6 @@ def parse_special_terms_to_list(text: str) -> List[str]:
     if not text or text.strip() == "[특약사항 추출 실패]":
         return []
 
-    # 다양한 패턴으로 분리
     patterns = [
         r'^\s*(\d+)\.\s*',  # 1. 2. 3. 형식
         r'^\s*(\d+)\)\s*',  # 1) 2) 3) 형식
@@ -87,9 +86,34 @@ def parse_special_terms_to_list(text: str) -> List[str]:
     if current_item.strip():
         items.append(current_item.strip())
 
-    # 빈 항목 제거 및 정리
-    return [item for item in items if item and item.strip()]
+    print(f"🔍 1단계 (패턴 분리): {len(items)}개 항목")
+    for i, item in enumerate(items, 1):
+        print(f"{i}. {item[:50]}...")
 
+    # 🔥 간단하게: 마지막 항목만 "임차인은 임대인의"로 분리
+    if len(items) > 0:
+        last_item = items[-1]
+        
+        # 마지막 항목에 "임차인은 임대인의"가 포함되어 있으면 분리
+        if "임차인은 임대인의" in last_item:
+            parts = last_item.split("임차인은 임대인의", 1)
+            if len(parts) == 2:
+                # 마지막 항목 제거
+                items = items[:-1]
+                
+                # 첫 번째 부분 추가 (공백 제거)
+                first_part = parts[0].strip()
+                if first_part:
+                    items.append(first_part)
+                
+                # 두 번째 부분 추가 ("임차인은 임대인의" 다시 붙여서)
+                second_part = ("임차인은 임대인의" + parts[1]).strip()
+                if second_part:
+                    items.append(second_part)
+
+    print(f"🔍 2단계 (마지막 항목 분리): {len(items)}개 항목")
+
+    return [item for item in items if item and item.strip()]
 
 # OK 텍스트 기반 PDF 특약사항 추출
 def extract_special_terms_text_pdf(pdf_path: str) -> str:
@@ -176,13 +200,21 @@ def extract_text_between_coordinates(ocr_results, start_y, end_y):
         center_y = sum([v[1] for v in box]) / 4
         if start_y <= center_y <= end_y:
             filtered.append((box[0][0], center_y, text))
+    
     lines = {}
     for x, y, text in filtered:
         key = round(y / 20) * 20
         lines.setdefault(key, []).append((x, text))
+    
     result = []
     for y in sorted(lines):
-        result.append(" ".join([t for x, t in sorted(lines[y])]))
+        line_text = " ".join([t for x, t in sorted(lines[y])])
+        
+        # 🔥 "특약" 또는 "사항"이 포함된 줄은 제외
+        if not (any(keyword in line_text for keyword in ['특약', '사항', '[', ']']) and 
+                len(line_text.strip()) < 30):  # 짧은 제목 줄만 제외
+            result.append(line_text)
+    
     return "\n".join(result)
 
 
@@ -253,7 +285,7 @@ if __name__ == "__main__":
 
     data = extract_special_terms(args.file)
 
-    output_dir = "../data/output/contract_json"
+    output_dir = "C:/LLM/data/output/contract_json"
     base_name = os.path.splitext(os.path.basename(args.file))[0]
     output_path = os.path.join(output_dir, f"{base_name}_특약.json")
 
