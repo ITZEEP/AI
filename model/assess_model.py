@@ -193,11 +193,10 @@ class ClauseAssessmentModel:
                 fallback_assessments = []
                 for clause in clause_group:
                     single_assessment = self._assess_single_clause_with_retry(
-                    clause, owner_context, tenant_context, group_llm
-                )
-                if single_assessment:
-                    fallback_assessments.extend(single_assessment)
-            
+                        clause, owner_context, tenant_context, group_llm
+                    )
+                    if single_assessment:
+                        fallback_assessments.extend(single_assessment)
                 return fallback_assessments
                     
         except Exception as e:

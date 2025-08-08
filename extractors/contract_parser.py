@@ -19,6 +19,8 @@ from config.path_resolver import get_google_credentials_path
 # OK 환경 변수 및 Vision API 클라이언트 설정
 _vision_client = None
 
+from config.logger_config import get_logger
+logger = get_logger(__name__)
 
 def get_vision_client():
     global _vision_client
@@ -86,11 +88,11 @@ def parse_special_terms_to_list(text: str) -> List[str]:
     if current_item.strip():
         items.append(current_item.strip())
 
-    print(f"🔍 1단계 (패턴 분리): {len(items)}개 항목")
+    logger.debug(f"[특약 파싱] 1단계(패턴 분리): {len(items)}개")
     for i, item in enumerate(items, 1):
-        print(f"{i}. {item[:50]}...")
+        logger.debug(f"{i}. {item[:50]}...")
 
-    # 🔥 간단하게: 마지막 항목만 "임차인은 임대인의"로 분리
+    # 간단하게: 마지막 항목만 "임차인은 임대인의"로 분리
     if len(items) > 0:
         last_item = items[-1]
         
@@ -111,7 +113,7 @@ def parse_special_terms_to_list(text: str) -> List[str]:
                 if second_part:
                     items.append(second_part)
 
-    print(f"🔍 2단계 (마지막 항목 분리): {len(items)}개 항목")
+    print(f"2단계 (마지막 항목 분리): {len(items)}개 항목")
 
     return [item for item in items if item and item.strip()]
 
@@ -188,7 +190,7 @@ def find_coordinate_markers_debug(ocr_results: List[Tuple[List[Tuple[int, int]],
             end_date_y = box_y
             print(f"종료 기준 Y좌표: {box_y:.2f} → 텍스트: '{text_clean}'")
     if special_terms_y and end_date_y:
-        print(f"\n📍 최종 추출 범위: {special_terms_y:.2f} ~ {end_date_y:.2f}\n")
+        print(f"\n최종 추출 범위: {special_terms_y:.2f} ~ {end_date_y:.2f}\n")
     else:
         print("\n특약사항 또는 종료 기준 좌표를 찾지 못했습니다.\n")
     return special_terms_y, end_date_y
@@ -210,7 +212,7 @@ def extract_text_between_coordinates(ocr_results, start_y, end_y):
     for y in sorted(lines):
         line_text = " ".join([t for x, t in sorted(lines[y])])
         
-        # 🔥 "특약" 또는 "사항"이 포함된 줄은 제외
+        # "특약" 또는 "사항"이 포함된 줄은 제외
         if not (any(keyword in line_text for keyword in ['특약', '사항', '[', ']']) and 
                 len(line_text.strip()) < 30):  # 짧은 제목 줄만 제외
             result.append(line_text)
@@ -294,6 +296,6 @@ if __name__ == "__main__":
 
     # 결과 미리보기
     if "special_terms" in data:
-        print(f"\n📋 추출된 특약사항 ({len(data['special_terms'])}개):")
+        print(f"\n 추출된 특약사항 ({len(data['special_terms'])}개):")
         for i, term in enumerate(data['special_terms'], 1):
             print(f"{i}. {term[:100]}{'...' if len(term) > 100 else ''}")

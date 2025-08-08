@@ -366,7 +366,9 @@ class ClauseImprovementModel:
                         continue
                 
             except Exception as e:
-                logger.error(f"특약 개선 최종 실패: {e}")
+                logger.warning(f"특약 개선 시도 실패(시도 {attempt+1}/3): {e}")
+                if attempt < 2:
+                    continue
                 return None
         return None
         
