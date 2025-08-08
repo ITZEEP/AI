@@ -398,6 +398,80 @@ class ClauseHistoryData(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class SpecialContract(BaseModel):
+    """특약사항 모델"""
+    order: int = Field(..., description="특약 순서", example=1)
+    title: str = Field(..., description="특약 제목", example="보일러 점검")
+    content: str = Field(..., description="특약 내용", example="입주 전 보일러 점검 완료")
+    
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ContractReportRequest(BaseModel):
+    """계약서 생성 요청 모델"""
+    contract_chat_id: int = Field(..., alias="contractChatId", description="계약 채팅방 ID", example=1234)
+    
+    # 임대인 정보
+    owner_name: str = Field(..., alias="ownerName", description="임대인 이름", example="이영희")
+    owner_addr: str = Field(..., alias="ownerAddr", description="임대인 주소", example="서울특별시 서초구 반포대로 45")
+    owner_phone_num: str = Field(..., alias="ownerPhoneNum", description="임대인 전화번호", example="01098765432")
+    
+    # 임차인 정보
+    buyer_name: str = Field(..., alias="buyerName", description="임차인 이름", example="김철수")
+    buyer_addr: str = Field(..., alias="buyerAddr", description="임차인 주소", example="서울특별시 강남구 테헤란로 123")
+    buyer_phone_num: str = Field(..., alias="buyerPhoneNum", description="임차인 전화번호", example="01012345678")
+    
+    # 매물 정보
+    home_addr1: str = Field(..., alias="homeAddr1", description="매물 주소1", example="서울특별시 강남구")
+    home_addr2: str = Field(..., alias="homeAddr2", description="매물 주소2", example="테헤란로 123, 101동 202호")
+    residence_type: str = Field(..., alias="residenceType", description="주거 타입", example="아파트")
+    exclusive_area: float = Field(..., alias="exclusiveArea", description="전용면적", example=85.0)
+    home_floor: int = Field(..., alias="homeFloor", description="층수", example=2)
+    
+    # 계약 정보
+    contract_start_date: str = Field(..., alias="contractStartDate", description="계약 시작일", example="2025-08-08")
+    contract_end_date: str = Field(..., alias="contractEndDate", description="계약 종료일", example="2026-08-07")
+    deposit_price: int = Field(..., alias="depositPrice", description="보증금", example=50000000)
+    monthly_rent: int = Field(..., alias="monthlyRent", description="월세", example=0)
+    maintenance_fee: int = Field(..., alias="maintenanceFee", description="관리비", example=100000)
+    
+    # 특약사항
+    special_contracts: List[SpecialContract] = Field(..., alias="specialContracts", description="특약사항 목록")
+    
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
+            "example": {
+                "contractChatId": 1234,
+                "ownerName": "이영희",
+                "ownerAddr": "서울특별시 서초구 반포대로 45",
+                "ownerPhoneNum": "01098765432",
+                "buyerName": "김철수",
+                "buyerAddr": "서울특별시 강남구 테헤란로 123",
+                "buyerPhoneNum": "01012345678",
+                "homeAddr1": "서울특별시 강남구",
+                "homeAddr2": "테헤란로 123, 101동 202호",
+                "residenceType": "아파트",
+                "exclusiveArea": 85.0,
+                "homeFloor": 2,
+                "contractStartDate": "2025-08-08",
+                "contractEndDate": "2026-08-07",
+                "depositPrice": 50000000,
+                "monthlyRent": 0,
+                "maintenanceFee": 100000,
+                "specialContracts": [
+                    {"order": 1, "title": "보일러 점검", "content": "입주 전 보일러 점검 완료"},
+                    {"order": 2, "title": "수도 점검", "content": "수도 누수 여부 확인 후 입주"},
+                    {"order": 3, "title": "전기 설비", "content": "누전 차단기 정상 작동 확인"},
+                    {"order": 4, "title": "방충망 교체", "content": "파손된 방충망 교체 예정"},
+                    {"order": 5, "title": "가전제품 유지", "content": "에어컨 및 세탁기 기존 유지"},
+                    {"order": 6, "title": "반려동물", "content": "반려동물 사육 가능"}
+                ]
+            }
+        }
+    )
+
+
 class ClauseImprovementRequest(BaseModel):
     """특약 개선 요청 모델"""
     contract_chat_id: int = Field(..., alias="contractChatId", description="계약 채팅방 ID", example=3039)
@@ -507,6 +581,7 @@ async def root():
             "parse_contract": "/api/parse/contract",
             "analyze_risk": "/api/analyze/risk",
             "validate_contract": "/api/contract/validate",
+            "generate_contract": "/api/contract/generate",
             "recommend_clauses": "/api/clause/recommend",
             "improve_clause": "/api/clause/improve"
         }
@@ -1085,6 +1160,110 @@ async def recommend_clauses(request: ClauseRecommendationRequest):
         logger.error(traceback.format_exc())
         return ApiResponse.error(
             message="특약 추천 중 예상치 못한 오류가 발생했습니다.",
+            code="INTERNAL_ERROR"
+        )
+
+
+@app.post("/api/contract/generate",
+          summary="계약서 적법성 검사",
+          description="""임대차 계약서 정보의 적법성을 검사합니다.
+
+주요 기능:
+- 계약 조건 적법성 검사
+- 특약사항 법적 문제 분석
+- 주의사항 및 위반사항 도출
+- 개선 권고사항 제공
+
+검사 항목:
+- 계약 기간 및 금액의 적정성
+- 특약사항의 법적 유효성
+- 임대차보호법 준수 여부
+- 계약 당사자 정보 완전성
+
+응답 형식:
+- 검사 상태 (SAFE/WARN/DANGER)
+- 문제점 목록 (violations/warnings)
+- 계약 정보 요약
+- 개선 권고사항
+""",
+          tags=["위험도 분석"],
+          response_model=ApiResponse)
+async def generate_contract(request: ContractReportRequest):
+    """계약서 적법성 검사 API
+    
+    임대차 계약서 정보를 분석하여 법적 문제점을 검사합니다.
+    """
+    try:
+        logger.info(f"계약서 검사 API 호출 - 채팅방 ID: {request.contract_chat_id}")
+        
+        # 기존 ContractValidationGenerator 사용
+        from generators.contract_report import ContractValidationGenerator
+        
+        # 요청 데이터를 Dict로 변환
+        contract_data = request.model_dump(by_alias=True)
+        
+        # 특약사항을 clauses_data 형식으로 변환
+        clauses_data = {
+            "timestamp": datetime.now().isoformat(),
+            "total_clauses": len(contract_data.get('specialContracts', [])),
+            "clauses": [
+                {
+                    "order": clause.get('order'),
+                    "title": clause.get('title'),
+                    "content": clause.get('content'),
+                    "assessment": {
+                        "owner": {
+                            "level": "안심",
+                            "reason": "검토 대기 중"
+                        },
+                        "tenant": {
+                            "level": "안심",
+                            "reason": "검토 대기 중"
+                        }
+                    }
+                } for clause in contract_data.get('specialContracts', [])
+            ]
+        }
+        
+        # 기본 계약 정보 추출
+        basic_info = {
+            "contractChatId": contract_data.get('contractChatId'),
+            "ownerName": contract_data.get('ownerName'),
+            "ownerAddr": contract_data.get('ownerAddr'),
+            "ownerPhoneNum": contract_data.get('ownerPhoneNum'),
+            "buyerName": contract_data.get('buyerName'),
+            "buyerAddr": contract_data.get('buyerAddr'),
+            "buyerPhoneNum": contract_data.get('buyerPhoneNum'),
+            "homeAddr1": contract_data.get('homeAddr1'),
+            "homeAddr2": contract_data.get('homeAddr2'),
+            "residenceType": contract_data.get('residenceType'),
+            "exclusiveArea": contract_data.get('exclusiveArea'),
+            "homeFloor": contract_data.get('homeFloor'),
+            "contractStartDate": contract_data.get('contractStartDate'),
+            "contractEndDate": contract_data.get('contractEndDate'),
+            "depositPrice": contract_data.get('depositPrice'),
+            "monthlyRent": contract_data.get('monthlyRent'),
+            "maintenanceFee": contract_data.get('maintenanceFee')
+        }
+        
+        # 적법성 검사 수행
+        result = ContractValidationGenerator.validate_contract_with_clauses(
+            clauses_data_json=clauses_data,
+            contract_basic_info_json=basic_info
+        )
+        
+        logger.info(f"계약서 검사 완료 - 상태: {result.get('validation_status')}, 문제: {result.get('total_violations', 0)}개")
+        
+        return ApiResponse.success(
+            data=result,
+            message="계약서 적법성 검사가 완료되었습니다."
+        )
+            
+    except Exception as e:
+        logger.error(f"계약서 검사 API 오류: {str(e)}")
+        logger.error(traceback.format_exc())
+        return ApiResponse.error(
+            message="계약서 검사 중 예상치 못한 오류가 발생했습니다.",
             code="INTERNAL_ERROR"
         )
 
