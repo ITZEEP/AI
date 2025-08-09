@@ -9,12 +9,14 @@ generators/risk_report.py - Spring 포맷 변환 및 데이터 파싱 (완전한
 import sys
 import re
 import os
-import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, date
 from dataclasses import dataclass
 from enum import Enum
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 # Import shared types from risk_types to avoid circular import
+
 from model.risk_types import (
     RiskLevel, UserInfo, PropertyInfo,
     CategoryAnalysisResult, DetailAnalysisResult, RiskAnalysisResult,
@@ -23,9 +25,10 @@ from model.risk_types import (
 # Now safe to import RiskAnalysisModel after breaking circular dependency
 from model.risk_model import RiskAnalysisModel
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-logger = logging.getLogger(__name__)
+
+from config.logger_config import get_logger
+logger = get_logger(__name__)
 
 
 # Data types imported from risk_types module
