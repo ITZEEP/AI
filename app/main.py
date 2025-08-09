@@ -1203,8 +1203,9 @@ async def generate_contract(request: ContractReportRequest):
         contract_data = request.model_dump(by_alias=True)
         
         # 특약사항을 clauses_data 형식으로 변환
+        # timestamp는 ApiResponse에서 자동 생성되므로 여기서는 빈 문자열로 설정
         clauses_data = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": "",  # ContractValidationGenerator에서 필요하지만 사용하지 않음
             "total_clauses": len(contract_data.get('specialContracts', [])),
             "clauses": [
                 {
