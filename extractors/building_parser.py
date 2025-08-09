@@ -1,4 +1,3 @@
-
 import fitz  # PyMuPDF
 import cv2
 import numpy as np
@@ -158,7 +157,7 @@ class BuildingInfoExtractor:
             return result
 
     def extract_text_based_pdf(self, doc, last_word: str) -> Optional[Dict]:
-        """텍스트 기반 PDF 처리 - 기존 로직 사용하되 연면적 수정"""
+        """텍스트 기반 PDF 처리 - 대지면적 포함"""
         page = doc[0]
         words = page.get_text("words")
         first, last = None, None
@@ -184,8 +183,8 @@ class BuildingInfoExtractor:
         crop_rect = fitz.Rect(x0, y0, x1, y1)
         cropped_text = page.get_textbox(crop_rect)
 
-        # 기본 정보 추출 - 연면적 수정된 함수 사용
-        basic_info = self.extract_basic_info_from_text_fixed(cropped_text)
+        # 기본 정보 추출 - 대지면적 포함
+        basic_info = self.extract_basic_info_from_text_with_land_area(cropped_text)
 
         # 전체 PDF에서 사용승인일과 위반건축물 여부 찾기
         all_pages_text = ""
@@ -199,6 +198,7 @@ class BuildingInfoExtractor:
             "대지위치": basic_info.get("대지위치", ""),
             "지번": basic_info.get("지번", ""),
             "도로명주소": basic_info.get("도로명주소", ""),
+            "대지면적": basic_info.get("대지면적", None),
             "연면적": basic_info.get("연면적", None),
             "층수": basic_info.get("층수", None),
             "용도": basic_info.get("용도", []),
@@ -207,7 +207,7 @@ class BuildingInfoExtractor:
         }
 
     def extract_image_based_pdf_improved(self, doc, last_word: str) -> Optional[Dict]:
-        """개선된 이미지 기반 PDF 처리 - OCR 단어 정보 보존"""
+        """개선된 이미지 기반 PDF 처리 - 대지면적 포함"""
         page = doc[0]
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = self.pixmap_to_bgr(pix)
@@ -257,9 +257,9 @@ class BuildingInfoExtractor:
                 cropped_words.append((word_y0, word_x0, word_text))
 
         cropped_text = self.reconstruct_text_from_ocr(cropped_words)
-        basic_info = self.extract_basic_info_from_text_fixed(cropped_text)
+        basic_info = self.extract_basic_info_from_text_with_land_area(cropped_text)
 
-        # **개선된 사용승인일 검색 - 모든 페이지의 OCR 단어 정보 수집**
+        # 개선된 사용승인일 검색
         print("전체 PDF에서 사용승인일 검색 중...")
         all_pages_text = ""
         ocr_words_by_page = {}
@@ -291,8 +291,7 @@ class BuildingInfoExtractor:
                 else:
                     if current_line_words:
                         current_line_words.sort(key=lambda w: w[0])
-                        line_text = ' '.join([w[1]
-                                             for w in current_line_words])
+                        line_text = ' '.join([w[1] for w in current_line_words])
                         lines.append(line_text)
                     current_line_words = [(x, text)]
                     current_y = y
@@ -310,14 +309,14 @@ class BuildingInfoExtractor:
                 print(f"페이지 {page_num + 1}에서 사용승인일 키워드 발견!")
 
         # 개선된 사용승인일 검색 사용
-        approval_date = self.find_approval_date_improved(
-            all_pages_text, ocr_words_by_page)
+        approval_date = self.find_approval_date_improved(all_pages_text, ocr_words_by_page)
         violation_status = self.find_violation_status(all_pages_text)
 
         return {
             "대지위치": basic_info.get("대지위치", ""),
             "지번": basic_info.get("지번", ""),
             "도로명주소": basic_info.get("도로명주소", ""),
+            "대지면적": basic_info.get("대지면적", None),
             "연면적": basic_info.get("연면적", None),
             "층수": basic_info.get("층수", None),
             "용도": basic_info.get("용도", []),
@@ -325,186 +324,126 @@ class BuildingInfoExtractor:
             "위반건축물여부": violation_status
         }
 
-    def find_approval_date_improved(self, full_text, ocr_words_by_page=None):
-        """개선된 사용승인일 찾기 - OCR 단어 위치 정보 활용"""
-        print("개선된 사용승인일 검색 시작...")
-
-        # 방법 1: 기존 텍스트 기반 검색
-        approval_date = self.find_approval_date_text_based(full_text)
-        if approval_date:
-            return approval_date
-
-        # 방법 2: OCR 단어 위치 기반 검색 (더 정확함)
-        if ocr_words_by_page:
-            approval_date = self.find_approval_date_ocr_based(
-                ocr_words_by_page)
-            if approval_date:
-                return approval_date
-
-        print("사용승인일을 찾을 수 없음")
-        return ""
-
-    def find_approval_date_text_based(self, full_text):
-        """텍스트 기반 사용승인일 검색"""
-        print("텍스트 기반 사용승인일 검색...")
-
-        lines = full_text.split('\n')
-
-        for i, line in enumerate(lines):
-            # 기존 조건에 "개사용승인일" 추가
-            if any(keyword in line for keyword in ["사용승인일", "사용 승인일", "개사용승인일", "승인일"]):
-                print(f"사용승인일 키워드 발견: {line}")
-
-                # 현재 줄과 주변 줄에서 날짜 찾기 (범위 확대)
-                context_lines = lines[max(0, i):i+8]  # 더 넓은 범위
-                context = ' '.join(context_lines)
-
-                # 디버깅용 출력
-                print(f"검색 컨텍스트 ({len(context_lines)}줄):")
-                for idx, ctx_line in enumerate(context_lines):
-                    print(f"  {idx}: {ctx_line}")
-
-                # 확장된 날짜 패턴들
-                date_patterns = [
-                    # 기본 패턴들
-                    r'사용\s*승인일[:\s]*(\d{4})\.(\d{1,2})\.(\d{1,2})',
-                    r'사용\s*승인일[:\s]*(\d{4})[년.-]\s*(\d{1,2})[월.-]\s*(\d{1,2})',
-                    r'사용\s*승인일[:\s]*(\d{4})-(\d{1,2})-(\d{1,2})',
-                    r'(\d{4})\.(\d{1,2})\.(\d{1,2})',
-
-                    # 역순 패턴들
-                    r'(\d{4})\.(\d{1,2})\.(\d{1,2})\s*사용\s*승인일',
-                    r'(\d{4})[년.]\s*(\d{1,2})[월.]\s*(\d{1,2})일?\s*사용\s*승인일',
-
-                    # 띄어쓰기가 있는 패턴들
-                    r'사용\s+승인일[:\s]*(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})',
-                    r'사용\s+승인일[:\s]*(\d{4})\s+(\d{1,2})\s+(\d{1,2})',
-
-                    # OCR 오인식 대응 패턴들
-                    r'사용\s*승인일[^0-9]{0,10}(\d{4})[^0-9]{1,3}(\d{1,2})[^0-9]{1,3}(\d{1,2})',
-                    r'(\d{4})[^0-9]{1,3}(\d{1,2})[^0-9]{1,3}(\d{1,2})[^사용승인일]{0,20}사용\s*승인일',
-                ]
-
-                for pattern_idx, pattern in enumerate(date_patterns):
-                    match = re.search(pattern, context, re.IGNORECASE)
-                    if match:
-                        groups = match.groups()
-                        if len(groups) >= 3:
-                            year, month, day = groups[:3]
-                            # 날짜 유효성 검사
-                            try:
-                                int_year = int(year)
-                                int_month = int(month)
-                                int_day = int(day)
-
-                                if 1900 <= int_year <= 2030 and 1 <= int_month <= 12 and 1 <= int_day <= 31:
-                                    result_date = f"{year}.{month.zfill(2)}.{day.zfill(2)}"
-                                    print(
-                                        f"패턴 {pattern_idx}로 사용승인일 발견: {result_date}")
-                                    return result_date
-                            except ValueError:
-                                continue
-
-        return ""
-
-    def find_approval_date_ocr_based(self, ocr_words_by_page):
-        """OCR 단어 위치 기반 사용승인일 검색"""
-        print("OCR 단어 위치 기반 사용승인일 검색...")
-
-        for page_num, words in ocr_words_by_page.items():
-            print(f"페이지 {page_num} 검색 중...")
-
-            # "사용승인일" 관련 단어들 찾기
-            approval_keywords = []
-
-            for i, word in enumerate(words):
-                x0, y0, x1, y1, text = word
-
-                # 사용승인일 키워드 찾기 (부분 매칭 포함)
-                if any(keyword in text for keyword in ["사용승인일", "사용", "승인일", "승인"]):
-                    approval_keywords.append((i, x0, y0, x1, y1, text))
-                    print(f"  승인 키워드 발견: '{text}' at ({x0}, {y0})")
-
-            # 사용승인일 키워드 근처의 날짜 찾기
-            for keyword_info in approval_keywords:
-                kw_idx, kw_x0, kw_y0, kw_x1, kw_y1, kw_text = keyword_info
-                print(f"  키워드 '{kw_text}' 주변 날짜 검색...")
-
-                # 키워드 주변 영역 설정 (더 넓게)
-                search_area = {
-                    'x_min': kw_x0 - 200,
-                    'x_max': kw_x1 + 200,
-                    'y_min': kw_y0 - 50,
-                    'y_max': kw_y1 + 100
-                }
-
-                # 주변 단어들 수집
-                nearby_words = []
-                for i in range(max(0, kw_idx - 20), min(len(words), kw_idx + 20)):
-                    word = words[i]
-                    wx0, wy0, wx1, wy1, wtext = word
-
-                    # 위치 기반 필터링
-                    if (search_area['x_min'] <= wx0 <= search_area['x_max'] and
-                            search_area['y_min'] <= wy0 <= search_area['y_max']):
-                        nearby_words.append((wy0, wx0, wtext))  # y, x, text
-
-                # 위치별 정렬하여 텍스트 재구성
-                nearby_words.sort(key=lambda x: (x[0], x[1]))
-                nearby_text = ' '.join([w[2] for w in nearby_words])
-
-                print(f"  주변 텍스트: {nearby_text}")
-
-                # 재구성된 텍스트에서 날짜 찾기
-                date_patterns = [
-                    r'(\d{4})\.(\d{1,2})\.(\d{1,2})',
-                    r'(\d{4})\s+(\d{1,2})\s+(\d{1,2})',
-                    r'(\d{4})[년]\s*(\d{1,2})[월]\s*(\d{1,2})',
-                ]
-
-                for pattern in date_patterns:
-                    matches = re.findall(pattern, nearby_text)
-                    for match in matches:
-                        year, month, day = match
-                        try:
-                            int_year = int(year)
-                            int_month = int(month)
-                            int_day = int(day)
-
-                            if 1900 <= int_year <= 2030 and 1 <= int_month <= 12 and 1 <= int_day <= 31:
-                                result_date = f"{year}.{month.zfill(2)}.{day.zfill(2)}"
-                                print(f"OCR 위치 기반으로 사용승인일 발견: {result_date}")
-                                return result_date
-                        except ValueError:
-                            continue
-
-        return ""
-
-    def extract_basic_info_from_text_fixed(self, text):
-        """수정된 기본 정보 추출 - 연면적과 용도 정확히 추출"""
+    def extract_basic_info_from_text_with_land_area(self, text):
+        """대지면적이 포함된 기본 정보 추출 함수 - 수정된 버전"""
         info = {}
         lines = [line.strip() for line in text.split('\n') if line.strip()]
 
         print(f"전체 텍스트:\n{text}")
         print(f"줄별 분리: {lines}")
 
+        # 1단계: 키워드와 수치 매칭
+        all_areas = []  # 모든 면적 후보를 저장
+        
         # 정보 추출
         for i, line in enumerate(lines):
             self.extract_location(lines, i, line, info)
             self.extract_jibun(lines, i, line, info)
             self.extract_road_address(lines, i, line, info)
-            self.extract_floor_area_fixed(lines, i, line, info)  # 수정된 연면적 함수
             self.extract_floors(lines, i, line, info)
-            self.extract_usage_improved(lines, i, line, info)  # 개선된 용도 함수
+            self.extract_usage_improved(lines, i, line, info)
+            
+            # 면적 정보를 분리해서 수집
+            area_info = self.collect_area_candidates(lines, i, line)
+            all_areas.extend(area_info)
+
+        # 2단계: 수집된 면적 정보를 분석해서 대지면적과 연면적 결정
+        self.assign_areas(info, all_areas)
 
         # 용도를 찾지 못했다면 다시 한 번 더 찾기
         if "용도" not in info or not info["용도"]:
             print("용도를 찾지 못함, 추가 검색 시작...")
             self.extract_usage_fallback(lines, info)
 
-        # 연면적 후보 선택
-        self.select_best_floor_area(info)
+        need_fix = False
+        d = info.get("대지면적")
+        y = info.get("연면적")
+        if d is None or y is None or (d == y and d is not None):
+            need_fix = True
+
+        if need_fix:
+            print("면적 보정 시도: 라벨-숫자 순서 기반 매핑")
+            block_result = self.parse_area_block(lines)
+
+            # parse_area_block 결과가 있으면 덮어씀
+            if "대지면적" in block_result:
+                info["대지면적"] = block_result["대지면적"]
+            if "연면적" in block_result:
+                info["연면적"] = block_result["연면적"]
+
+            # 상식 검증: 연면적 < 대지면적이면 스왑 (숫자 두 개만 있을 때 오인식 방지)
+            if info.get("대지면적") and info.get("연면적"):
+                if info["연면적"] < info["대지면적"]:
+                    info["대지면적"], info["연면적"] = info["연면적"], info["대지면적"]
+                    print("보정: 연면적<대지면적 감지, 스왑 수행")
+        
         return info
+
+    def collect_area_candidates(self, lines, i, line):
+        """면적 후보들을 수집하는 함수"""
+        candidates = []
+        
+        # >>> 여기부터 새 헬퍼 사용
+        def _find_first_area_after(idx: int, max_lookahead: int = 8):
+            """idx 이후로 처음 등장하는 면적 숫자(㎡/m²/m 포함)를 찾아 (값, 거리)를 반환"""
+            for j in range(idx, min(idx + 1 + max_lookahead, len(lines))):
+                check_line = lines[j]
+                area_matches = re.findall(r'([\d,]+\.?\d*)\s*(?:㎡|m²|m)', check_line)
+                if area_matches:
+                    # 가장 처음 등장한 숫자 하나만 사용
+                    try:
+                        area_val = float(area_matches[0].replace(',', ''))
+                        # 너무 작은 잡값(예: 5m) 필터링. 필요시 조정 가능.
+                        if area_val >= 50:
+                            return area_val, (j - idx)
+                    except ValueError:
+                        continue
+            return None, None
+        # <<< 여기까지
+        
+        # 대지면적 키워드 처리: "대지면적" 이후 나오는 첫 숫자를 대지면적으로 본다
+        if any(keyword in line for keyword in ["대지면적", "대지 면적"]):
+            area_val, dist = _find_first_area_after(i)
+            if area_val is not None:
+                candidates.append(('대지면적', area_val, dist))
+                print(f"대지면적 후보(첫 숫자) 확정: {area_val}")
+        
+        # 연면적 키워드 처리: "연면적" 이후 나오는 첫 숫자를 연면적으로 본다
+        elif "연면적" in line and "용적률" not in line and "산정용" not in line:
+            area_val, dist = _find_first_area_after(i)
+            if area_val is not None:
+                candidates.append(('연면적', area_val, dist))
+                print(f"연면적 후보(첫 숫자) 확정: {area_val}")
+        
+        return candidates
+
+    def assign_areas(self, info, all_areas):
+        """수집된 면적 후보들을 분석해서 대지면적과 연면적을 결정"""
+        if not all_areas:
+            return
+            
+        print(f"면적 후보들 분석: {all_areas}")
+        
+        land_candidates = [a for a in all_areas if a[0] == '대지면적']
+        floor_candidates = [a for a in all_areas if a[0] == '연면적']
+        
+        if land_candidates:
+            best_land = min(land_candidates, key=lambda x: x[2])
+            info["대지면적"] = best_land[1]
+            print(f"대지면적 확정: {best_land[1]}")
+        
+        if floor_candidates:
+            best_floor = min(floor_candidates, key=lambda x: x[2])
+            info["연면적"] = best_floor[1]
+            print(f"연면적 확정: {best_floor[1]}")
+        
+        # 둘 다 얻었는데 상식적으로 뒤집힌 경우(대지면적 > 연면적) 보정
+        if info.get("대지면적") and info.get("연면적"):
+            if info["대지면적"] > info["연면적"]:
+                # 큰 폭으로 역전되어 있으면 스왑 (임계는 임의: 1.2배)
+                if info["대지면적"] >= info["연면적"] * 1.2:
+                    info["대지면적"], info["연면적"] = info["연면적"], info["대지면적"]
+                    print("면적 상식 검증으로 스왑 수행 (대지면적 > 연면적 감지)")
 
     def extract_location(self, lines, i, line, info):
         """대지위치 찾기"""
@@ -584,83 +523,6 @@ class BuildingInfoExtractor:
                     info["도로명주소"] = next_line
                     print(f"도로명주소 발견 (다음줄): {next_line}")
 
-    def extract_floor_area_fixed(self, lines, i, line, info):
-        """수정된 연면적 찾기 - 대지면적과 정확히 구분"""
-        if "연면적" in line and "용적률" not in line and "산정용" not in line and "대지면적" not in line:
-            print(f"연면적 키워드 발견 줄: {line}")
-
-            # 같은 줄에서 찾기
-            area_patterns = [
-                r'연면적\s*([\d,]+\.?\d*)\s*㎡',
-                r'연면적.*?([\d,]+\.?\d*)\s*㎡',
-                r'연면적\s*([\d,]+\.?\d*)\s*m',
-                r'연면적.*?([\d,]+\.?\d*)\s*m'
-            ]
-
-            found = False
-            for pattern in area_patterns:
-                match = re.search(pattern, line)
-                if match:
-                    area_str = match.group(1).replace(',', '').replace(' ', '')
-                    try:
-                        area = float(area_str)
-                        info["연면적"] = area
-                        found = True
-                        print(f"연면적 발견: {area}")
-                        break
-                    except ValueError:
-                        continue
-
-            # 다음 줄들에서 찾기
-            if not found:
-                print("같은 줄에서 못 찾음, 다음 줄들 검색...")
-                for j in range(i + 1, min(i + 15, len(lines))):
-                    next_line = lines[j]
-                    print(f"  검사 줄: {next_line}")
-
-                    # **대지면적은 명시적으로 건너뛰기**
-                    if any(keyword in next_line for keyword in ["대지면적", "※대지면적", "대지 면적"]):
-                        print(f"  건너뛰기 (대지면적): {next_line}")
-                        continue
-
-                    # 건축면적도 건너뛰기
-                    if any(keyword in next_line for keyword in ["건축면적", "※건축면적"]):
-                        print(f"  건너뛰기 (건축면적): {next_line}")
-                        continue
-
-                    # 다른 항목 시작시 중단
-                    if any(keyword in next_line for keyword in ["용적률", "건폐율", "주용도", "주구조"]):
-                        print(f"  중단 (다른 항목): {next_line}")
-                        break
-
-                    # ㎡ 또는 m 포함 숫자 찾기 (OCR에서 m으로 인식될 수 있음)
-                    if (("㎡" in next_line or "m²" in next_line or " m " in next_line) and any(c.isdigit() for c in next_line)):
-                        area_matches = re.findall(
-                            r'([\d,]+\.?\d*)\s*(?:㎡|m²|m)', next_line)
-                        print(f"  면적 후보들: {area_matches}")
-
-                        for area_str in area_matches:
-                            try:
-                                area = float(area_str.replace(',', ''))
-                                print(f"    검사 면적: {area}")
-
-                                # **연면적은 일반적으로 큰 값이므로 조건 설정**
-                                if area >= 100000:  # 10만㎡ 이상이면 바로 연면적으로 인정
-                                    info["연면적"] = area
-                                    found = True
-                                    print(f"연면적 확정: {area}")
-                                    break
-                                elif area >= 100:  # 1천㎡ 이상이면 후보로 저장
-                                    if "연면적_후보들" not in info:
-                                        info["연면적_후보들"] = []
-                                    info["연면적_후보들"].append(area)
-                                    print(f"연면적 후보 추가: {area}")
-                            except ValueError:
-                                continue
-
-                        if found:
-                            break
-
     def extract_floors(self, lines, i, line, info):
         """층수 찾기"""
         if any(keyword in line for keyword in ["층수", "지하", "지상"]):
@@ -689,8 +551,7 @@ class BuildingInfoExtractor:
                         if match:
                             basement, above_ground = match.groups()
                             info["층수"] = f"지하{basement}층/지상{above_ground}층"
-                            print(
-                                f"층수 발견 (다음줄): 지하{basement}층/지상{above_ground}층")
+                            print(f"층수 발견 (다음줄): 지하{basement}층/지상{above_ground}층")
                             found = True
                             break
                     if found:
@@ -815,12 +676,9 @@ class BuildingInfoExtractor:
                         if any(keyword in part for keyword in ["시설", "주택", "오피스텔", "상가"]):
                             # 불필요한 부분 제거
                             clean_part = re.sub(r'철근\s*콘크리트\s*구조', '', part)
-                            clean_part = re.sub(
-                                r'지하\s*\d+\s*층', '', clean_part)
-                            clean_part = re.sub(
-                                r'지상\s*\d+\s*층', '', clean_part)
-                            clean_part = re.sub(
-                                r'[\d,]+\.?\d*\s*(?:㎡|m²)', '', clean_part)
+                            clean_part = re.sub(r'지하\s*\d+\s*층', '', clean_part)
+                            clean_part = re.sub(r'지상\s*\d+\s*층', '', clean_part)
+                            clean_part = re.sub(r'[\d,]+\.?\d*\s*(?:㎡|m²)', '', clean_part)
                             clean_part = clean_part.strip()
 
                             if clean_part and len(clean_part) > 2:
@@ -838,8 +696,7 @@ class BuildingInfoExtractor:
                     clean_line = re.sub(r'철근\s*콘크리트\s*구조', '', line)
                     clean_line = re.sub(r'지하\s*\d+\s*층', '', clean_line)
                     clean_line = re.sub(r'지상\s*\d+\s*층', '', clean_line)
-                    clean_line = re.sub(
-                        r'[\d,]+\.?\d*\s*(?:㎡|m²)', '', clean_line)
+                    clean_line = re.sub(r'[\d,]+\.?\d*\s*(?:㎡|m²)', '', clean_line)
                     clean_line = clean_line.strip()
 
                     if clean_line and len(clean_line) > 2:
@@ -879,7 +736,59 @@ class BuildingInfoExtractor:
             print(f"최종 대안 검색으로 용도 발견: {found_usages}")
         else:
             print("용도를 찾을 수 없음")
+            
+    def parse_area_block(self, lines: List[str]) -> Dict[str, float]:
+        """
+        대지면적/연면적 라벨이 먼저 나오고, 이후 숫자들이 연달아 나오는 양식을 처리.
+        등장 순서대로 매핑해 안정적으로 값 할당.
+        """
+        labels_queue: List[str] = []
+        numbers: List[float] = []
+        result: Dict[str, float] = {}
 
+        # 라벨: "대지면적", "연면적" (띄어쓰기 허용)
+        area_label_pattern = re.compile(
+            r'^[※*\-\u25A0\u25CF]?\s*(대지\s*면적|대지면적|연면적)\s*:?\s*$'
+        )
+        # 숫자: 87,182.8 ㎡ / 805,927.36㎡  (m 제외)
+        number_pattern = re.compile(r'([\d,]+\.?\d*)\s*(?:㎡|m²)\s*$')
+
+        # 1) 라벨 수집 → 2) 라벨이 하나 이상 대기 중일 때 숫자 수집
+        for idx, line in enumerate(lines):
+            # (추가) 줄 앞 특수기호/불릿 제거 후 트림
+            s = line.strip()
+            s = re.sub(r'^[※*\-\u25A0\u25CF]+\s*', '', s)
+
+            m_label = area_label_pattern.search(s)
+            if m_label:
+                label = m_label.group(1).replace(' ', '')
+                if label in ['대지면적', '연면적']:
+                    labels_queue.append(label)
+                    print(f"[parse_area_block] 라벨 큐 추가: {label}")
+                continue
+
+            if labels_queue:
+                m_num = number_pattern.search(s)
+                if m_num:
+                    try:
+                        val = float(m_num.group(1).replace(',', ''))
+                        numbers.append(val)
+                        print(f"[parse_area_block] 숫자 검출: {val}")
+                        # 라벨 개수만큼 숫자를 채웠으면 종료
+                        if len(numbers) >= len(labels_queue):
+                            break
+                    except ValueError:
+                        pass
+
+        # 라벨 등장 순서대로 숫자 매핑
+        for i, label in enumerate(labels_queue):
+            if i < len(numbers):
+                result[label] = numbers[i]
+
+        print(f"[parse_area_block] 매핑 결과: {result}")
+        return result
+    
+    
     def reconstruct_text_from_ocr(self, cropped_words) -> str:
         """OCR 결과를 줄별로 재구성하여 텍스트 형태로 변환"""
         print(f"크롭된 단어 수: {len(cropped_words)}")
@@ -923,23 +832,158 @@ class BuildingInfoExtractor:
         print(f"크롭된 텍스트 줄 수: {len(processed_lines)}")
         return cropped_text
 
-    def select_best_floor_area(self, info):
-        """연면적 후보 중 최적값 선택"""
-        if "연면적_후보들" in info and "연면적" not in info:
-            candidates = info["연면적_후보들"]
-            print(f"연면적 후보들: {candidates}")
+    def find_approval_date_improved(self, full_text, ocr_words_by_page=None):
+        """개선된 사용승인일 찾기 - OCR 단어 위치 정보 활용"""
+        print("개선된 사용승인일 검색 시작...")
 
-            if len(candidates) >= 2:
-                # 여러 후보가 있으면 가장 큰 값을 연면적으로 선택
-                sorted_candidates = sorted(candidates, reverse=True)
-                info["연면적"] = sorted_candidates[0]
-                print(f"연면적 후보 중 선택: {sorted_candidates[0]}")
-            elif candidates:
-                info["연면적"] = candidates[0]
-                print(f"연면적 후보 중 선택: {candidates[0]}")
+        # 방법 1: 기존 텍스트 기반 검색
+        approval_date = self.find_approval_date_text_based(full_text)
+        if approval_date:
+            return approval_date
 
-            if "연면적_후보들" in info:
-                del info["연면적_후보들"]
+        # 방법 2: OCR 단어 위치 기반 검색 (더 정확함)
+        if ocr_words_by_page:
+            approval_date = self.find_approval_date_ocr_based(ocr_words_by_page)
+            if approval_date:
+                return approval_date
+
+        print("사용승인일을 찾을 수 없음")
+        return ""
+
+    def find_approval_date_text_based(self, full_text):
+        """텍스트 기반 사용승인일 검색"""
+        print("텍스트 기반 사용승인일 검색...")
+
+        lines = full_text.split('\n')
+
+        for i, line in enumerate(lines):
+            # 기존 조건에 "개사용승인일" 추가
+            if any(keyword in line for keyword in ["사용승인일", "사용 승인일", "개사용승인일", "승인일"]):
+                print(f"사용승인일 키워드 발견: {line}")
+
+                # 현재 줄과 주변 줄에서 날짜 찾기 (범위 확대)
+                context_lines = lines[max(0, i):i+8]  # 더 넓은 범위
+                context = ' '.join(context_lines)
+
+                # 디버깅용 출력
+                print(f"검색 컨텍스트 ({len(context_lines)}줄):")
+                for idx, ctx_line in enumerate(context_lines):
+                    print(f"  {idx}: {ctx_line}")
+
+                # 확장된 날짜 패턴들
+                date_patterns = [
+                    # 기본 패턴들
+                    r'사용\s*승인일[:\s]*(\d{4})\.(\d{1,2})\.(\d{1,2})',
+                    r'사용\s*승인일[:\s]*(\d{4})[년.-]\s*(\d{1,2})[월.-]\s*(\d{1,2})',
+                    r'사용\s*승인일[:\s]*(\d{4})-(\d{1,2})-(\d{1,2})',
+                    r'(\d{4})\.(\d{1,2})\.(\d{1,2})',
+
+                    # 역순 패턴들
+                    r'(\d{4})\.(\d{1,2})\.(\d{1,2})\s*사용\s*승인일',
+                    r'(\d{4})[년.]\s*(\d{1,2})[월.]\s*(\d{1,2})일?\s*사용\s*승인일',
+
+                    # 띄어쓰기가 있는 패턴들
+                    r'사용\s+승인일[:\s]*(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})',
+                    r'사용\s+승인일[:\s]*(\d{4})\s+(\d{1,2})\s+(\d{1,2})',
+
+                    # OCR 오인식 대응 패턴들
+                    r'사용\s*승인일[^0-9]{0,10}(\d{4})[^0-9]{1,3}(\d{1,2})[^0-9]{1,3}(\d{1,2})',
+                    r'(\d{4})[^0-9]{1,3}(\d{1,2})[^0-9]{1,3}(\d{1,2})[^사용승인일]{0,20}사용\s*승인일',
+                ]
+
+                for pattern_idx, pattern in enumerate(date_patterns):
+                    match = re.search(pattern, context, re.IGNORECASE)
+                    if match:
+                        groups = match.groups()
+                        if len(groups) >= 3:
+                            year, month, day = groups[:3]
+                            # 날짜 유효성 검사
+                            try:
+                                int_year = int(year)
+                                int_month = int(month)
+                                int_day = int(day)
+
+                                if 1900 <= int_year <= 2030 and 1 <= int_month <= 12 and 1 <= int_day <= 31:
+                                    result_date = f"{year}.{month.zfill(2)}.{day.zfill(2)}"
+                                    print(f"패턴 {pattern_idx}로 사용승인일 발견: {result_date}")
+                                    return result_date
+                            except ValueError:
+                                continue
+
+        return ""
+
+    def find_approval_date_ocr_based(self, ocr_words_by_page):
+        """OCR 단어 위치 기반 사용승인일 검색"""
+        print("OCR 단어 위치 기반 사용승인일 검색...")
+
+        for page_num, words in ocr_words_by_page.items():
+            print(f"페이지 {page_num} 검색 중...")
+
+            # "사용승인일" 관련 단어들 찾기
+            approval_keywords = []
+
+            for i, word in enumerate(words):
+                x0, y0, x1, y1, text = word
+
+                # 사용승인일 키워드 찾기 (부분 매칭 포함)
+                if any(keyword in text for keyword in ["사용승인일", "사용", "승인일", "승인"]):
+                    approval_keywords.append((i, x0, y0, x1, y1, text))
+                    print(f"  승인 키워드 발견: '{text}' at ({x0}, {y0})")
+
+            # 사용승인일 키워드 근처의 날짜 찾기
+            for keyword_info in approval_keywords:
+                kw_idx, kw_x0, kw_y0, kw_x1, kw_y1, kw_text = keyword_info
+                print(f"  키워드 '{kw_text}' 주변 날짜 검색...")
+
+                # 키워드 주변 영역 설정 (더 넓게)
+                search_area = {
+                    'x_min': kw_x0 - 200,
+                    'x_max': kw_x1 + 200,
+                    'y_min': kw_y0 - 50,
+                    'y_max': kw_y1 + 100
+                }
+
+                # 주변 단어들 수집
+                nearby_words = []
+                for i in range(max(0, kw_idx - 20), min(len(words), kw_idx + 20)):
+                    word = words[i]
+                    wx0, wy0, wx1, wy1, wtext = word
+
+                    # 위치 기반 필터링
+                    if (search_area['x_min'] <= wx0 <= search_area['x_max'] and
+                            search_area['y_min'] <= wy0 <= search_area['y_max']):
+                        nearby_words.append((wy0, wx0, wtext))  # y, x, text
+
+                # 위치별 정렬하여 텍스트 재구성
+                nearby_words.sort(key=lambda x: (x[0], x[1]))
+                nearby_text = ' '.join([w[2] for w in nearby_words])
+
+                print(f"  주변 텍스트: {nearby_text}")
+
+                # 재구성된 텍스트에서 날짜 찾기
+                date_patterns = [
+                    r'(\d{4})\.(\d{1,2})\.(\d{1,2})',
+                    r'(\d{4})\s+(\d{1,2})\s+(\d{1,2})',
+                    r'(\d{4})[년]\s*(\d{1,2})[월]\s*(\d{1,2})',
+                ]
+
+                for pattern in date_patterns:
+                    matches = re.findall(pattern, nearby_text)
+                    for match in matches:
+                        year, month, day = match
+                        try:
+                            int_year = int(year)
+                            int_month = int(month)
+                            int_day = int(day)
+
+                            if 1900 <= int_year <= 2030 and 1 <= int_month <= 12 and 1 <= int_day <= 31:
+                                result_date = f"{year}.{month.zfill(2)}.{day.zfill(2)}"
+                                print(f"OCR 위치 기반으로 사용승인일 발견: {result_date}")
+                                return result_date
+                        except ValueError:
+                            continue
+
+        return ""
 
     def find_violation_status(self, full_text):
         """위반건축물 여부 확인"""
@@ -987,8 +1031,7 @@ class BuildingInfoExtractor:
                 for i in range(start_idx, end_idx):
                     word = ocr_words[i]
                     marker = " >>> " if i == kw_idx else "     "
-                    print(
-                        f"{marker}{i}: '{word[4]}' at ({word[0]}, {word[1]})")
+                    print(f"{marker}{i}: '{word[4]}' at ({word[0]}, {word[1]})")
 
             # 줄별 재구성된 텍스트도 출력
             print(f"\n페이지 {page_num + 1} 재구성된 텍스트:")
@@ -1008,8 +1051,7 @@ class BuildingInfoExtractor:
                 else:
                     if current_line_words:
                         current_line_words.sort(key=lambda w: w[0])
-                        line_text = ' '.join([w[1]
-                                             for w in current_line_words])
+                        line_text = ' '.join([w[1] for w in current_line_words])
                         lines.append(line_text)
                     current_line_words = [(x, text)]
                     current_y = y
@@ -1037,7 +1079,7 @@ class BuildingInfoExtractor:
 
         json_result = {}
         for key, value in result.items():
-            if key == "연면적" and value is None:
+            if key in ["연면적", "대지면적"] and value is None:  # 대지면적도 포함
                 json_result[key] = "정보없음"
             elif key == "층수" and value is None:
                 json_result[key] = "정보없음"
@@ -1087,7 +1129,6 @@ def main():
         )
 
         if result:
-            print("OK 건축물대장 분석 완료")
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print("ERROR 분석 중 오류가 발생했습니다.")
