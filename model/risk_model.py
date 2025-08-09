@@ -17,8 +17,7 @@ from datetime import date
 from enum import Enum
 from dotenv import load_dotenv
 
-# Import shared data types from risk_types to avoid circular import
-from model.risk_types import RiskAnalysisResult, CategoryAnalysisResult, DetailAnalysisResult, RiskLevel
+
 
 # 프로젝트 루트 경로 설정
 current_file_path = os.path.abspath(__file__)
@@ -32,6 +31,9 @@ if project_root not in sys.path:
 # law_system 경로도 직접 추가
 if law_system_path not in sys.path:
     sys.path.insert(0, law_system_path)
+    
+# Import shared data types from risk_types to avoid circular import
+from model.risk_types import RiskAnalysisResult, CategoryAnalysisResult, DetailAnalysisResult, RiskLevel
 
 # LangChain imports
 try:
@@ -262,7 +264,7 @@ class JusoApiAddressVerifier:
 class RiskAnalysisModel:
     """행정안전부 API 기반 위험도 분석 모델"""
     
-    def __init__(self, model_name: str = "gemini-1.5-flash", temperature: float = 0.1):
+    def __init__(self, model_name: str = "gemini-2.5-pro", temperature: float = 0.1):
         """
         Args:
             model_name: 사용할 LLM 모델명
@@ -275,7 +277,7 @@ class RiskAnalysisModel:
         self.address_verifier = JusoApiAddressVerifier()
         
     def _setup_llm(self):
-        """Gemini 1.5 Flash LLM 설정"""
+        """Gemini LLM 설정"""
         try:
             api_key = os.getenv("GOOGLE_API_KEY")
 

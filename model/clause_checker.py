@@ -39,7 +39,7 @@ try:
     from law_system.law_vectorstore import get_law_vectorstore, search_law
     LAW_SYSTEM_AVAILABLE = True
 except ImportError as e:
-    logger.error(f"❌ law_system import 실패: {e}")
+    logger.error(f"law_system import 실패: {e}")
     LAW_SYSTEM_AVAILABLE = False
 
 
@@ -290,6 +290,8 @@ class ContractLegalChecker:
 - **월세 계약**: 보증금 + 월세 존재
 - **계약금은 우리 시스템에 아예 없음** (시퀀스에 포함되지 않음)
 - **위약금은 오직 보증금 기준으로만 산정함**
+- **계약금, 잔금 내용은 절대 금지**
+- **직거래 계약이므로 중개보수 및 중개 내용 금지**
 
 ## 중요한 검토 원칙:
 1. **실제로 법령에 위반되거나 명백히 불공정한 조항만** 지적해주세요

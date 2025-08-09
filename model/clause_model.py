@@ -22,6 +22,9 @@ from config.logger_config import get_logger
 logger = get_logger(__name__)
 from config.gemini_retry import retry_gemini_api
 
+# 표준조항 import
+from config.standard_clauses import STANDARD_CLAUSES
+
 # clause_report에서 파서 import
 try:
     from generators.clause_report import ClauseDataParser, ClauseData, OwnerPrecheck, TenantPrecheck
@@ -43,7 +46,7 @@ except ImportError as e:
 class ClauseGenerationModel:
     """AI 기반 특약 생성 모델 - Gemini 2.5 Pro 전용"""
     
-    def __init__(self, model_name: str = "gemini-2.5-pro", temperature: float = 0.07):
+    def __init__(self, model_name: str = "gemini-2.5-pro", temperature: float = 0.1):
         """
         Args:
             model_name: 모델명 (기본값: gemini-2.5-pro)
@@ -89,7 +92,7 @@ class ClauseGenerationModel:
     @retry_gemini_api(max_retries=5, initial_delay=2.0, backoff_multiplier=1.5)
     def _call_gemini_api(self, chain, invoke_params):
         """
-        Gemini API 호출 래퍼 메서드 (재시도 로직 적용)
+        Gemini API 호출 래퍼 메서드
         
         Args:
             chain: LangChain 체인
@@ -216,22 +219,33 @@ class ClauseGenerationModel:
 
 {law_context}
 
+# 표준계약서 필수조항 (절대 중복 금지):
+{standard_clauses}
+
 ## 우리 시스템의 계약 구조 (중요!):
 - **전세 계약**: 보증금만 존재 (월세 없음)
 - **월세 계약**: 보증금 + 월세 존재
 - **계약금은 우리 시스템에 아예 없음** (시퀀스에 포함되지 않음)
 - **위약금은 오직 보증금 기준으로만 산정함**
+- **계약금, 잔금 내용은 절대 금지**
+- **직거래 계약이므로 중개보수 및 중개 내용 금지**
+
+# 표준조항 준수사항 (매우 중요!):
+1. **위의 표준조항과 완전히 동일한 내용은 절대 특약으로 생성 금지**
+2. **표준조항과 모순되거나 상충하는 내용 생성 금지**
+3. **표준조항을 구체화/세부화/보완하는 것은 허용**
+4. **OCR 특약이 있다면 참고만 하되, 사전조사 내용에 맞게 개선/보완**
+5. **표준조항에 없는 새로운 권리/의무 관계만 특약으로 생성**
 
 # 특약 생성 규칙:
 1. 반드시 6개의 특약만 생성하세요
 2. 임대인과 임차인의 조건을 모두 고려하세요
-3. 기존 OCR 특약과 중복되지 않는 새로운 특약을 만드세요
-4. 구체적이고 실행 가능한 내용으로 작성하세요
-5. 법령에 근거한 특약을 우선시하세요
-6. 양측의 이익을 균형있게 반영하세요
-7. 전세/월세 유형에 맞는 특약을 생성하세요
-8. 각 특약 내용은 1-2문장으로 간결하게 작성하세요
-9. 핵심 내용만 포함하고 불필요한 설명은 제외하세요
+3. 구체적이고 실행 가능한 내용으로 작성하세요
+4. 법령에 근거한 특약을 우선시하세요
+5. 양측의 이익을 균형있게 반영하세요
+6. 전세/월세 유형에 맞는 특약을 생성하세요
+7. 각 특약 내용은 1-2문장으로 간결하게 작성하세요
+8. 핵심 내용만 포함하고 불필요한 설명은 제외하세요
 
 # 특별 고려사항:
 - 반려동물, 흡연, 중도퇴거 등 구체적 조건 반영
@@ -278,7 +292,8 @@ class ClauseGenerationModel:
                 "owner_context": owner_context,
                 "tenant_context": tenant_context,
                 "ocr_context": ocr_context,
-                "law_context": law_context
+                "law_context": law_context,
+                "standard_clauses":STANDARD_CLAUSES
             })
             
             logger.info("Gemini API 호출 완료")
