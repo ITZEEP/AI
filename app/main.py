@@ -6,6 +6,7 @@ import os
 import tempfile
 import traceback
 from typing import Optional, List
+from datetime import datetime
 
 # UTF-8 인코딩 설정
 import sys
@@ -26,7 +27,6 @@ from app.parsers.dto_converter import DtoConverter
 
 # AI 모델 필수 import
 from generators.risk_report import RiskReportGenerator
-from generators.contract_report import ContractValidationGenerator
 from generators.clause_report import ClauseReportGenerator
 from generators.improve_report import ClauseImprovementController
 
@@ -76,7 +76,6 @@ building_extractor = BuildingInfoExtractor()
 
 # 위험도 분석기 인스턴스 생성 (필수)
 risk_report_generator = None
-contract_validation_generator = None
 clause_report_generator = None
 clause_improvement_controller = None
 try:
@@ -88,9 +87,6 @@ try:
     
     risk_report_generator = RiskReportGenerator()
     logger.info("Risk analysis model loaded successfully")
-    
-    contract_validation_generator = ContractValidationGenerator()
-    logger.info("Contract validation model loaded successfully")
     
     clause_report_generator = ClauseReportGenerator()
     logger.info("Clause report generator loaded successfully")
@@ -170,31 +166,6 @@ class RiskAnalysisRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-
-class ContractValidationRequest(BaseModel):
-    """계약서 검증 요청 모델
-    
-    Spring backend에서 전달하는 계약서 정보를 담는 데이터 전송 객체입니다.
-    """
-    contract_id: int = Field(..., alias="contractId", description="계약서 ID", example=1)
-    home_id: int = Field(..., alias="homeId", description="매물 ID", example=100)
-    owner_id: int = Field(..., alias="ownerId", description="임대인 ID", example=10)
-    buyer_id: int = Field(..., alias="buyerId", description="임차인 ID", example=20)
-    contract_date: str = Field(..., alias="contractDate", description="계약 날짜 (YYYY-MM-DD)", example="2024-01-01")
-    contract_expire_date: str = Field(..., alias="contractExpireDate", description="계약 만료 날짜 (YYYY-MM-DD)", example="2025-12-31")
-    deposit_price: Optional[int] = Field(None, alias="depositPrice", description="보증금 (원)", example=200000000)
-    monthly_rent: Optional[int] = Field(None, alias="monthlyRent", description="월세 (원)", example=1000000)
-    maintenance_fee: Optional[int] = Field(None, alias="maintenanceFee", description="관리비 (원)", example=150000)
-    special_clauses: List[str] = Field(..., alias="specialClauses", description="특약사항 목록", 
-                                       example=[
-                                           "임차인은 계약 해지 시 원상복구 비용을 전액 부담한다.",
-                                           "애완동물 사육을 허가하되, 추가 보증금 50만원을 납부한다.",
-                                           "임대인은 언제든지 3일 전 통보로 계약을 해지할 수 있다.",
-                                           "임차인은 전대 및 양도를 할 수 없다.",
-                                           "월세를 3일 이상 연체 시 연체료는 일 1%로 한다."
-                                       ])
-
-    model_config = ConfigDict(populate_by_name=True)
 
 
 class RestoreCategoryInfo(BaseModel):
@@ -581,7 +552,6 @@ async def root():
             "parse_contract": "/api/parse/contract",
             "analyze_risk": "/api/analyze/risk",
             "validate_contract": "/api/contract/validate",
-            "generate_contract": "/api/contract/generate",
             "recommend_clauses": "/api/clause/recommend",
             "improve_clause": "/api/clause/improve"
         }
@@ -933,16 +903,66 @@ async def analyze_risk(request: RiskAnalysisRequest):
                   }
               }
           })
-async def validate_contract(request: ContractValidationRequest):
+async def validate_contract(request: ContractReportRequest):
     """계약서 법령 검증 API"""
     try:
-        logger.info(f"계약서 검증 시작: contract_id={request.contract_id}")
+        logger.info(f"계약서 검증 시작: contract_chat_id={request.contract_chat_id}")
         
-        # Request DTO를 generator가 기대하는 형식으로 변환
+        # ContractValidationGenerator 사용
+        from generators.contract_report import ContractValidationGenerator
+        
+        # 요청 데이터를 Dict로 변환
         contract_data = request.model_dump(by_alias=True)
         
-        # 계약서 검증 수행
-        result = contract_validation_generator.validate_contract_for_spring(contract_data)
+        # 특약사항을 clauses_data 형식으로 변환
+        clauses_data = {
+            "timestamp": "",  # ContractValidationGenerator에서 필요하지만 사용하지 않음
+            "total_clauses": len(contract_data.get('specialContracts', [])),
+            "clauses": [
+                {
+                    "order": clause.get('order'),
+                    "title": clause.get('title'),
+                    "content": clause.get('content'),
+                    "assessment": {
+                        "owner": {
+                            "level": "안심",
+                            "reason": "검토 대기 중"
+                        },
+                        "tenant": {
+                            "level": "안심",
+                            "reason": "검토 대기 중"
+                        }
+                    }
+                } for clause in contract_data.get('specialContracts', [])
+            ]
+        }
+        
+        # 기본 계약 정보 추출
+        basic_info = {
+            "contractChatId": contract_data.get('contractChatId'),
+            "ownerName": contract_data.get('ownerName'),
+            "ownerAddr": contract_data.get('ownerAddr'),
+            "ownerPhoneNum": contract_data.get('ownerPhoneNum'),
+            "buyerName": contract_data.get('buyerName'),
+            "buyerAddr": contract_data.get('buyerAddr'),
+            "buyerPhoneNum": contract_data.get('buyerPhoneNum'),
+            "homeAddr1": contract_data.get('homeAddr1'),
+            "homeAddr2": contract_data.get('homeAddr2'),
+            "residenceType": contract_data.get('residenceType'),
+            "exclusiveArea": contract_data.get('exclusiveArea'),
+            "homeFloor": contract_data.get('homeFloor'),
+            "contractStartDate": contract_data.get('contractStartDate'),
+            "contractEndDate": contract_data.get('contractEndDate'),
+            "depositPrice": contract_data.get('depositPrice'),
+            "monthlyRent": contract_data.get('monthlyRent'),
+            "maintenanceFee": contract_data.get('maintenanceFee')
+        }
+        
+        # 적법성 검사 수행
+        result = ContractValidationGenerator.validate_contract_with_clauses(
+            clauses_data_json=clauses_data,
+            contract_basic_info_json=basic_info
+        )
         
         logger.info(f"계약서 검증 완료: status={result.get('validation_status')}, violations={result.get('total_violations')}")
         
@@ -1163,110 +1183,6 @@ async def recommend_clauses(request: ClauseRecommendationRequest):
             code="INTERNAL_ERROR"
         )
 
-
-@app.post("/api/contract/generate",
-          summary="계약서 적법성 검사",
-          description="""임대차 계약서 정보의 적법성을 검사합니다.
-
-주요 기능:
-- 계약 조건 적법성 검사
-- 특약사항 법적 문제 분석
-- 주의사항 및 위반사항 도출
-- 개선 권고사항 제공
-
-검사 항목:
-- 계약 기간 및 금액의 적정성
-- 특약사항의 법적 유효성
-- 임대차보호법 준수 여부
-- 계약 당사자 정보 완전성
-
-응답 형식:
-- 검사 상태 (SAFE/WARN/DANGER)
-- 문제점 목록 (violations/warnings)
-- 계약 정보 요약
-- 개선 권고사항
-""",
-          tags=["위험도 분석"],
-          response_model=ApiResponse)
-async def generate_contract(request: ContractReportRequest):
-    """계약서 적법성 검사 API
-    
-    임대차 계약서 정보를 분석하여 법적 문제점을 검사합니다.
-    """
-    try:
-        logger.info(f"계약서 검사 API 호출 - 채팅방 ID: {request.contract_chat_id}")
-        
-        # 기존 ContractValidationGenerator 사용
-        from generators.contract_report import ContractValidationGenerator
-        
-        # 요청 데이터를 Dict로 변환
-        contract_data = request.model_dump(by_alias=True)
-        
-        # 특약사항을 clauses_data 형식으로 변환
-        # timestamp는 ApiResponse에서 자동 생성되므로 여기서는 빈 문자열로 설정
-        clauses_data = {
-            "timestamp": "",  # ContractValidationGenerator에서 필요하지만 사용하지 않음
-            "total_clauses": len(contract_data.get('specialContracts', [])),
-            "clauses": [
-                {
-                    "order": clause.get('order'),
-                    "title": clause.get('title'),
-                    "content": clause.get('content'),
-                    "assessment": {
-                        "owner": {
-                            "level": "안심",
-                            "reason": "검토 대기 중"
-                        },
-                        "tenant": {
-                            "level": "안심",
-                            "reason": "검토 대기 중"
-                        }
-                    }
-                } for clause in contract_data.get('specialContracts', [])
-            ]
-        }
-        
-        # 기본 계약 정보 추출
-        basic_info = {
-            "contractChatId": contract_data.get('contractChatId'),
-            "ownerName": contract_data.get('ownerName'),
-            "ownerAddr": contract_data.get('ownerAddr'),
-            "ownerPhoneNum": contract_data.get('ownerPhoneNum'),
-            "buyerName": contract_data.get('buyerName'),
-            "buyerAddr": contract_data.get('buyerAddr'),
-            "buyerPhoneNum": contract_data.get('buyerPhoneNum'),
-            "homeAddr1": contract_data.get('homeAddr1'),
-            "homeAddr2": contract_data.get('homeAddr2'),
-            "residenceType": contract_data.get('residenceType'),
-            "exclusiveArea": contract_data.get('exclusiveArea'),
-            "homeFloor": contract_data.get('homeFloor'),
-            "contractStartDate": contract_data.get('contractStartDate'),
-            "contractEndDate": contract_data.get('contractEndDate'),
-            "depositPrice": contract_data.get('depositPrice'),
-            "monthlyRent": contract_data.get('monthlyRent'),
-            "maintenanceFee": contract_data.get('maintenanceFee')
-        }
-        
-        # 적법성 검사 수행
-        result = ContractValidationGenerator.validate_contract_with_clauses(
-            clauses_data_json=clauses_data,
-            contract_basic_info_json=basic_info
-        )
-        
-        logger.info(f"계약서 검사 완료 - 상태: {result.get('validation_status')}, 문제: {result.get('total_violations', 0)}개")
-        
-        return ApiResponse.success(
-            data=result,
-            message="계약서 적법성 검사가 완료되었습니다."
-        )
-            
-    except Exception as e:
-        logger.error(f"계약서 검사 API 오류: {str(e)}")
-        logger.error(traceback.format_exc())
-        return ApiResponse.error(
-            message="계약서 검사 중 예상치 못한 오류가 발생했습니다.",
-            code="INTERNAL_ERROR"
-        )
 
 
 @app.post("/api/clause/improve",
