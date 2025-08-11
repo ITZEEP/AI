@@ -6,20 +6,52 @@ import os
 
 try:
     from google.ai.generativelanguage_v1beta.types import GenerateContentResponse
-    from google.api_core.exceptions import InternalServerError
+    from google.api_core.exceptions import (
+        InternalServerError,
+        ServiceUnavailable,
+        TooManyRequests,
+        ResourceExhausted,
+        DeadlineExceeded
+    )
 except ImportError:
     try:
         from google.generativeai.types import GenerationConfig
-        from google.api_core.exceptions import InternalServerError
+        from google.api_core.exceptions import (
+            InternalServerError,
+            ServiceUnavailable,
+            TooManyRequests,
+            ResourceExhausted,
+            DeadlineExceeded
+        )
     except ImportError:
         try:
             # 일반적인 예외로 대체
             class InternalServerError(Exception):
                 """500 Internal Server Error 대체 클래스"""
                 pass
+            
+            class ServiceUnavailable(Exception):
+                """503 Service Unavailable 대체 클래스"""
+                pass
+            
+            class TooManyRequests(Exception):
+                """429 Too Many Requests 대체 클래스"""
+                pass
+            
+            class ResourceExhausted(Exception):
+                """Resource Exhausted 대체 클래스"""
+                pass
+            
+            class DeadlineExceeded(Exception):
+                """Deadline Exceeded 대체 클래스"""
+                pass
         except:
             # 최후의 수단으로 일반 Exception 사용
             InternalServerError = Exception
+            ServiceUnavailable = Exception
+            TooManyRequests = Exception
+            ResourceExhausted = Exception
+            DeadlineExceeded = Exception
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -62,13 +94,31 @@ def retry_gemini_api(max_retries: int = 5, initial_delay: float = 2.0, backoff_m
                     
                     return result
                     
-                except InternalServerError as e:
+                except (
+                    InternalServerError,
+                    ServiceUnavailable,
+                    TooManyRequests,
+                    ResourceExhausted,
+                    DeadlineExceeded
+                ) as e:
                     last_exception = e
+                    
+                    # 에러 타입별 로그 메시지 개선
+                    error_messages = {
+                        'InternalServerError': '서버 내부 오류 (500)',
+                        'ServiceUnavailable': '서비스 이용 불가 (503)',
+                        'TooManyRequests': '요청 한도 초과 (429)',
+                        'ResourceExhausted': '리소스 고갈',
+                        'DeadlineExceeded': '요청 시간 초과'
+                    }
+                    
+                    error_type = type(e).__name__
+                    error_msg = error_messages.get(error_type, f'{error_type}')
                     
                     if attempt < max_retries:
                         # 재시도 로그
                         logger.warning(f"재시도 {attempt + 1}/{max_retries}: {func.__name__}")
-                        logger.warning(f"에러: {str(e)}")
+                        logger.warning(f"에러 유형: {error_msg} - {str(e)}")
                         logger.info(f"{current_delay}초 대기 후 재시도...")
                         
                         # 대기
@@ -79,10 +129,10 @@ def retry_gemini_api(max_retries: int = 5, initial_delay: float = 2.0, backoff_m
                     else:
                         # 최종 실패
                         logger.error(f"최종 실패: {func.__name__} - {max_retries + 1}회 모두 실패")
-                        logger.error(f"최종 에러: {str(e)}")
+                        logger.error(f"최종 에러 유형: {error_msg} - {str(e)}")
                         
                 except Exception as e:
-                    # InternalServerError가 아닌 다른 에러는 즉시 발생
+                    # 위의 예외들이 아닌 다른 에러는 즉시 발생
                     logger.error(f"즉시 실패: {func.__name__} - {type(e).__name__}: {str(e)}")
                     raise e
             

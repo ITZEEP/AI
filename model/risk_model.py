@@ -648,7 +648,7 @@ class RiskAnalysisModel:
                     "registry_info": registry_info_str,
                     "building_info": building_info_str,
                     "relevant_laws": laws_info_str,
-                    "category_risks": category_risks,
+                    "category_risks": {k: (v.value if hasattr(v, "value") else str(v)) for k, v in category_risks.items()},
                     "mortgage_ratio": mortgage_ratio,
                     "address_summary": address_summary
                 })
@@ -747,10 +747,10 @@ class RiskAnalysisModel:
             
             # 섹션별 내용 추출
             sections = [
-            ('basic_info', r'###\s*1\.\s*기본정보\s*분석(.*?)(?=###\s*2\.|$)'),
-            ('rights_info', r'###\s*2\.\s*권리관계\s*분석(.*?)(?=###\s*3\.|$)'),
-            ('building_info', r'###\s*3\.\s*건축관련\s*분석(.*?)(?=###\s*4\.|$)'),
-            ('legal_info', r'###\s*4\.\s*법령위험\s*분석(.*?)(?=###|$)')
+            ('basic_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?1[.)]?\s*기본정보\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?2[.)]|\Z)'),
+            ('rights_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?2[.)]?\s*권리관계\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?3[.)]|\Z)'),
+            ('building_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?3[.)]?\s*건축관련\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?4[.)]|\Z)'),
+            ('legal_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?4[.)]?\s*법령위험\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?\d[.)]|\Z)')
         ]
             
             for section_name, pattern in sections:
