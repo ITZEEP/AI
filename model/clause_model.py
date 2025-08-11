@@ -284,32 +284,36 @@ class ClauseGenerationModel:
         chain = prompt | self.llm | StrOutputParser()
         
         # 특약 생성 (재시도 로직 적용)
-        try:
-            logger.info("Gemini API 호출 중... (재시도 로직 활성화)")
-            
-            # 재시도 로직이 적용된 API 호출
-            result = self._call_gemini_api(chain, {
+        for attempt in range(3):
+            try:
+                logger.info(f"특약 생성 시도 {attempt + 1}/3 (재시도 로직 활성화)")
+                
+                # 재시도 로직이 적용된 API 호출
+                result = self._call_gemini_api(chain, {
                 "owner_context": owner_context,
                 "tenant_context": tenant_context,
                 "ocr_context": ocr_context,
                 "law_context": law_context,
-                "standard_clauses":STANDARD_CLAUSES
-            })
-            
-            logger.info("Gemini API 호출 완료")
-            
-            # 결과 파싱 - clause_report의 파서 사용
-            clauses = self.parser.parse_llm_clauses_output(result)
-            
-            if not clauses:
-                logger.warning("파싱된 특약이 없습니다. LLM 응답 확인 필요")
-                logger.debug(f"LLM 응답: {result[:300]}...")
-            
-            return clauses
-            
-        except Exception as e:
-            logger.error(f"LLM 특약 생성 최종 실패: {e}")
-            logger.error("모든 재시도 시도가 실패했습니다.")
-            return []
-    
+                "standard_clauses": STANDARD_CLAUSES
+                })
+                
+                logger.info(f"특약 생성 API 완료 - 시도 {attempt + 1}")
+                
+                # 결과 파싱 - clause_report의 파서 사용
+                clauses = self.parser.parse_llm_clauses_output(result)
+                
+                if clauses and len(clauses) == 6:
+                    logger.info(f"특약 생성 성공 - 시도 {attempt + 1}, 특약 수: {len(clauses)}개")
+                    return clauses
+                else:
+                    logger.warning(f"특약 파싱 실패 - 시도 {attempt + 1}, 파싱된 수: {len(clauses) if clauses else 0}개, 재시도 진행")
+                    if attempt < 2:
+                        continue
+                
+            except Exception as e:
+                logger.warning(f"특약 생성 시도 {attempt + 1} 실패: {e}")
+                if attempt < 2:
+                    continue
+        logger.error("모든 특약 생성 시도 실패")
+        return []
     
