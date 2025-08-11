@@ -674,7 +674,7 @@ class RiskAnalysisModel:
             
         logger.error("모든 위험도 분석 시도 실패")
         # 최소한의 기본 구조만 반환 (완전 실패 방지)
-        return None
+        return self._get_fallback_result().detail_analysis
     
     def _is_valid_parsed_result(self, detail_analysis) -> bool:
         """
@@ -729,9 +729,9 @@ class RiskAnalysisModel:
         """LLM 상세 분석 응답 파싱 (카테고리별 위험도 포함) - 디버깅 추가"""
         try:
             # 🔍 디버깅: LLM 응답 전체를 로그로 출력
-            logger.info("=== LLM 응답 전체 ===")
-            logger.info(response_text[:1000] + "..." if len(response_text) > 1000 else response_text)
-            logger.info("=== LLM 응답 끝 ===")
+            # logger.info("=== LLM 응답 전체 ===")
+            # logger.info(response_text[:1000] + "..." if len(response_text) > 1000 else response_text)
+            # logger.info("=== LLM 응답 끝 ===")
             
             # 기본값 설정
             result = {
@@ -763,13 +763,9 @@ class RiskAnalysisModel:
                     logger.info(section_content[:300] + "..." if len(section_content) > 300 else section_content)
                     
                     # 제목 추출
-                    title_match = re.search(r'제목:\s*(.+?)(?:\n|\*\*)', section_content)
+                    title_match = re.search(r'(?m)^제목:\s*(.+)$', section_content)
                     if title_match:
                         title = title_match.group(1).strip()
-                        # ** 제거 (앞뒤 모두)
-                        title = re.sub(r'^\*\*', '', title)  # 앞의 ** 제거
-                        title = re.sub(r'\*\*$', '', title)  # 뒤의 ** 제거
-                        title = title.strip()  # 공백 제거
                         
                         result[f'{section_name}_title'] = title
                         logger.info(f"제목 추출 성공: {title}")
@@ -777,7 +773,7 @@ class RiskAnalysisModel:
                         logger.warning(f"{section_name} 제목 추출 실패")
                     
                     # 내용 추출 (** 제거 개선)
-                    content_match = re.search(r'내용:\s*(.+?)(?:\n### |$)', section_content, re.DOTALL)
+                    content_match = re.search(r'내용:\s*(.+?)(?:\n\s*(?:제목:|$)|\Z)', section_content, re.DOTALL | re.MULTILINE)
                     if content_match:
                         content = content_match.group(1).strip()
                         # 내용에서 ** 제거 (마크다운 볼드 제거)

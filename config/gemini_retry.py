@@ -45,7 +45,7 @@ except ImportError:
             class DeadlineExceeded(Exception):
                 """Deadline Exceeded 대체 클래스"""
                 pass
-        except:
+        except Exception:
             # 최후의 수단으로 일반 Exception 사용
             InternalServerError = Exception
             ServiceUnavailable = Exception
@@ -130,6 +130,7 @@ def retry_gemini_api(max_retries: int = 5, initial_delay: float = 2.0, backoff_m
                         # 최종 실패
                         logger.error(f"최종 실패: {func.__name__} - {max_retries + 1}회 모두 실패")
                         logger.error(f"최종 에러 유형: {error_msg} - {str(e)}")
+                        raise e
                         
                 except Exception as e:
                     # 위의 예외들이 아닌 다른 에러는 즉시 발생
