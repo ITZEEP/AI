@@ -33,6 +33,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 load_dotenv()
 from config.logger_config import get_logger
 logger = get_logger(__name__)
+from config.gemini_retry import retry_gemini_api
 
 # law_system import
 try:
@@ -94,6 +95,22 @@ class ContractLegalChecker:
         except Exception as e:
             logger.error(f"Vectorstore connection failed: {e}")
             return None
+    @retry_gemini_api(max_retries=5, initial_delay=2.0, backoff_multiplier=1.5)
+    def _call_gemini_api_for_checker(self, chain, invoke_params):
+        """
+        Gemini API 호출 래퍼 메서드 (적법성 검사용, 재시도 로직 적용)
+        
+        Args:
+            chain: LangChain 체인
+            invoke_params: invoke에 전달할 파라미터
+        
+        Returns:
+            API 호출 결과
+        """
+        logger.debug("Gemini API 호출 시작 (적법성 검사)")
+        result = chain.invoke(invoke_params)
+        logger.debug("Gemini API 호출 성공 (적법성 검사)")
+        return result
         
     def analyze_contract_text(self, contract_text: str, is_jeonse: bool = True) -> List[Dict[str, Any]]:
         """
@@ -328,18 +345,38 @@ class ContractLegalChecker:
         
         chain = prompt | self.llm | StrOutputParser()
     
-        try:
-            result = chain.invoke({
-                "full_contract": full_contract_text,
-                "laws_context": laws_context,
-                "contract_type_guidance": contract_type_guidance
-            })
+        for attempt in range(3):
+            try:
+                logger.debug(f"계약서 분석 시도 {attempt + 1}/3")
             
-            return self._parse_contract_analysis_result(result)
-            
-        except Exception as e:
-            logger.error(f"전체 계약서 LLM 분석 실패: {e}")
-            return []
+                # 재시도 로직이 적용된 API 호출 (gemini_retry로 5번 재시도)
+                result = self._call_gemini_api_for_checker(chain, {
+                    "full_contract": full_contract_text,
+                    "laws_context": laws_context,
+                    "contract_type_guidance": contract_type_guidance
+                })
+                
+                logger.debug(f"계약서 분석 API 완료 - 시도 {attempt + 1}")
+                
+                # 결과 파싱
+                violations = self._parse_contract_analysis_result(result)
+                
+                # 파싱 성공하면 바로 반환 (빈 리스트도 성공으로 간주)
+                if violations is not None:
+                    logger.info(f"계약서 분석 성공 - 시도 {attempt + 1}, 위반사항: {len(violations)}건")
+                    return violations
+                else:
+                    logger.warning(f"계약서 분석 파싱 실패 - 시도 {attempt + 1}, 재시도 진행")
+                    if attempt < 2:
+                        continue
+                
+            except Exception as e:
+                logger.warning(f"계약서 분석 시도 {attempt + 1} 실패: {e}")
+                if attempt < 2:
+                    continue
+        
+        logger.error("모든 계약서 분석 시도 실패")
+        return []  # 빈 리스트 반환
     
     def _format_laws_context(self, laws: List[Dict[str, Any]]) -> str:
         """법령 정보를 컨텍스트로 포맷팅"""

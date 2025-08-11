@@ -39,6 +39,7 @@ from model.risk_types import RiskAnalysisResult, CategoryAnalysisResult, DetailA
 try:
     from langchain_core.prompts import PromptTemplate
     from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.output_parsers import StrOutputParser
 except ImportError as e:
     print(f"ERROR: Failed to import LangChain dependencies: {e}")
     print("Please install with: pip install langchain-core langchain-google-genai")
@@ -57,8 +58,7 @@ except ImportError:
 
 from config.logger_config import get_logger
 logger = get_logger(__name__)
-
-
+from config.gemini_retry import retry_gemini_api
 
 
 class JusoApiAddressVerifier:
@@ -319,6 +319,23 @@ class RiskAnalysisModel:
             logger.error("Make sure ChromaDB is installed and vectorstore data exists")
             raise
     
+    @retry_gemini_api(max_retries=5, initial_delay=2.0, backoff_multiplier=1.5)
+    def _call_gemini_api_for_risk(self, chain, invoke_params):
+        """
+        Gemini API 호출 래퍼 메서드 (위험도 분석용, 재시도 로직 적용)
+        
+        Args:
+            chain: LangChain 체인
+            invoke_params: invoke에 전달할 파라미터
+        
+        Returns:
+            API 호출 결과
+        """
+        logger.debug("Gemini API 호출 시작 (위험도 분석)")
+        result = chain.invoke(invoke_params)
+        logger.debug("Gemini API 호출 성공 (위험도 분석)")
+        return result
+    
     def analyze_risk_with_categories(self, user_info, property_info, registry_data, building_data):
         """
         카테고리별 개별 위험도 분석을 포함한 종합 위험도 분석 수행
@@ -565,13 +582,13 @@ class RiskAnalysisModel:
             return []
     
     def _analyze_details_with_llm_by_category(self, user_info, property_info, registry_data, building_data, 
-                                            relevant_laws, category_risks, address_summary):
+                                        relevant_laws, category_risks, address_summary):
         """LLM을 사용한 카테고리별 상세 분석 (개별 위험도 포함)"""
         
         # 카테고리별 개별 분석 프롬프트 템플릿
         category_analysis_prompt = PromptTemplate(
-            input_variables=["user_info", "property_info", "registry_info", "building_info", 
-                           "relevant_laws", "category_risks", "mortgage_ratio", "address_summary"],
+        input_variables=["user_info", "property_info", "registry_info", "building_info", 
+                       "relevant_laws", "category_risks", "mortgage_ratio", "address_summary"],
             template="""
 당신은 부동산 전문가입니다. 4개 카테고리별로 개별 위험도가 판정된 매물에 대해 상세 분석을 수행해주세요.
 
@@ -588,24 +605,28 @@ class RiskAnalysisModel:
 ## 카테고리별 분석
 
 ### 1. 기본정보 분석 
-**제목**: [소유자 검증 또는 주소 일치성 관련 적절한 제목]
-**내용**: 소유자 일치성과 주소 정합성을 중심으로 2~3문장으로 분석하세요.
+제목: [소유자 검증 또는 주소 일치성 관련 적절한 제목]
+내용: 소유자 일치성과 주소 정합성을 중심으로 2~3문장으로 분석하세요.
 
 ### 2. 권리관계 분석
-**제목**: [근저당권 또는 권리제한 관련 적절한 제목]
-**내용**: 근저당권 비율과 가압류/경매/소송/압류 여부를 중심으로 2~3문장으로 분석하세요.
+제목: [근저당권 또는 권리제한 관련 적절한 제목]
+내용: 근저당권 비율과 가압류/경매/소송/압류 여부를 중심으로 2~3문장으로 분석하세요.
 
 ### 3. 건축관련 분석 
-**제목**: [건축물 적법성 또는 용도 관련 적절한 제목]
-**내용**: 위반건축물 여부와 매물 타입 일치성을 중심으로 2~3문장으로 분석하세요.
+제목: [건축물 적법성 또는 용도 관련 적절한 제목]
+내용: 위반건축물 여부와 매물 타입 일치성을 중심으로 2~3문장으로 분석하세요.
 
 ### 4. 법령위험 분석 
-**제목**: [관련 법령 또는 준수사항 관련 적절한 제목]
-**내용**: 관련 법령을 바탕으로 주의사항이나 법적 위험요소를 2~3문장으로 분석하세요.
+제목: [관련 법령 또는 준수사항 관련 적절한 제목]
+내용: 관련 법령을 바탕으로 주의사항이나 법적 위험요소를 2~3문장으로 분석하세요.
 
-반드시 위 형식을 정확히 지켜서 응답해주세요.
+반드시 위 형식을 정확히 지켜서 응답해주세요. 
+중요: **볼드**, *이탤릭* 등 마크다운 문법을 사용하지 마세요. 순수 텍스트로만 작성해주세요.
 """
         )
+        
+        # LLM 체인 구성
+        chain = category_analysis_prompt | self.llm | StrOutputParser()
         
         # 입력 데이터 포맷팅
         user_info_str = self._format_user_info(user_info)
@@ -616,65 +637,155 @@ class RiskAnalysisModel:
         mortgage_ratio = self._calculate_mortgage_risk_ratio(registry_data, property_info)
         
         # LLM 호출
+        for attempt in range(3):
+            try:
+                logger.debug(f"위험도 분석 시도 {attempt + 1}/3")
+                
+                # 재시도 로직이 적용된 API 호출 (gemini_retry로 5번 재시도)
+                result = self._call_gemini_api_for_risk(chain, {
+                    "user_info": user_info_str,
+                    "property_info": property_info_str,
+                    "registry_info": registry_info_str,
+                    "building_info": building_info_str,
+                    "relevant_laws": laws_info_str,
+                    "category_risks": {k: (v.value if hasattr(v, "value") else str(v)) for k, v in category_risks.items()},
+                    "mortgage_ratio": mortgage_ratio,
+                    "address_summary": address_summary
+                })
+                
+                logger.debug(f"위험도 분석 API 완료 - 시도 {attempt + 1}")
+                
+                # 응답 파싱 후 카테고리별 위험도 추가 (result는 이미 문자열)
+                detail_analysis = self._parse_detail_analysis_response_with_categories(result, category_risks)
+                
+                # 4개 카테고리가 모두 파싱되면 성공
+                if self._is_valid_parsed_result(detail_analysis):
+                    logger.info(f"위험도 분석 성공 - 시도 {attempt + 1}")
+                    return detail_analysis
+                else:
+                    logger.warning(f"위험도 분석 파싱 실패 - 시도 {attempt + 1}, 재시도 진행")
+                    if attempt < 2:
+                        continue
+                
+            except Exception as e:
+                logger.warning(f"위험도 분석 시도 {attempt + 1} 실패: {e}")
+                if attempt < 2:
+                    continue
+            
+        logger.error("모든 위험도 분석 시도 실패")
+        # 최소한의 기본 구조만 반환 (완전 실패 방지)
+        return self._get_fallback_result().detail_analysis
+    
+    def _is_valid_parsed_result(self, detail_analysis) -> bool:
+        """
+        파싱 결과 유효성 검증 - 모든 카테고리의 제목과 내용이 있어야 통과
+        
+        Args:
+            detail_analysis: DetailAnalysisResult 객체
+            
+        Returns:
+            bool: 파싱 성공 여부
+        """
+        if not detail_analysis:
+            logger.warning("detail_analysis가 None임")
+            return False
+        
         try:
-            prompt = category_analysis_prompt.format(
-                user_info=user_info_str,
-                property_info=property_info_str,
-                registry_info=registry_info_str,
-                building_info=building_info_str,
-                relevant_laws=laws_info_str,
-                category_risks=category_risks,
-                mortgage_ratio=mortgage_ratio,
-                address_summary=address_summary
-            )
+            # 4개 카테고리 검증
+            categories = [
+                ('basic_info', detail_analysis.basic_info),
+                ('rights_info', detail_analysis.rights_info), 
+                ('building_info', detail_analysis.building_info),
+                ('legal_info', detail_analysis.legal_info)
+            ]
             
-            response = self.llm.invoke(prompt)
-            analysis_text = response.content
+            for category_name, category in categories:
+                # 카테고리 객체가 없으면 실패
+                if not category:
+                    logger.warning(f"{category_name} 카테고리가 없음")
+                    return False
+                
+                # 제목이 없거나 기본값만 있으면 실패
+                if not category.title or category.title.strip() in ['', '기본 정보 확인', '권리관계 확인', '건축물 확인', '법령 준수 확인']:
+                    logger.warning(f"{category_name} 제목이 없거나 기본값임: '{category.title}'")
+                    return False
+                
+                # 내용이 없거나 너무 짧으면 실패
+                if not category.content or len(category.content.strip()) < 15:
+                    logger.warning(f"{category_name} 내용이 없거나 너무 짧음 (길이: {len(category.content.strip()) if category.content else 0})")
+                    return False
             
-            # 응답 파싱 후 카테고리별 위험도 추가
-            return self._parse_detail_analysis_response_with_categories(analysis_text, category_risks)
+            logger.info("모든 카테고리 파싱 검증 통과")
+            return True
             
+        except AttributeError as e:
+            logger.warning(f"파싱 검증 중 속성 오류: {e}")
+            return False
         except Exception as e:
-            logger.error(f"LLM 카테고리별 분석 실패: {e}")
-            return self._get_fallback_detail_analysis_with_categories(category_risks)
+            logger.error(f"파싱 검증 중 예외 발생: {e}")
+            return False
     
     def _parse_detail_analysis_response_with_categories(self, response_text: str, category_risks: Dict[str, RiskLevel]):
-        """LLM 상세 분석 응답 파싱 (카테고리별 위험도 포함)"""
+        """LLM 상세 분석 응답 파싱 (카테고리별 위험도 포함) - 디버깅 추가"""
         try:
+            # 🔍 디버깅: LLM 응답 전체를 로그로 출력
+            # logger.info("=== LLM 응답 전체 ===")
+            # logger.info(response_text[:1000] + "..." if len(response_text) > 1000 else response_text)
+            # logger.info("=== LLM 응답 끝 ===")
+            
             # 기본값 설정
             result = {
                 'basic_info_title': '기본 정보 확인',
-                'basic_info_content': '분석 결과를 추출할 수 없습니다.',
+                'basic_info_content': '',
                 'rights_info_title': '권리관계 확인',
-                'rights_info_content': '분석 결과를 추출할 수 없습니다.',
+                'rights_info_content': '',
                 'building_info_title': '건축물 확인',
-                'building_info_content': '분석 결과를 추출할 수 없습니다.',
+                'building_info_content': '',
                 'legal_info_title': '법령 준수 확인',
-                'legal_info_content': '분석 결과를 추출할 수 없습니다.'
+                'legal_info_content': ''
             }
             
             # 섹션별 내용 추출
             sections = [
-                ('basic_info', r'### 1\. 기본정보 분석(.*?)(?=### 2\.|$)'),
-                ('rights_info', r'### 2\. 권리관계 분석(.*?)(?=### 3\.|$)'),
-                ('building_info', r'### 3\. 건축관련 분석(.*?)(?=### 4\.|$)'),
-                ('legal_info', r'### 4\. 법령위험 분석(.*?)(?=$)')
-            ]
+            ('basic_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?1[.)]?\s*기본정보\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?2[.)]|\Z)'),
+            ('rights_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?2[.)]?\s*권리관계\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?3[.)]|\Z)'),
+            ('building_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?3[.)]?\s*건축관련\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?4[.)]|\Z)'),
+            ('legal_info', r'(?:^|\n)\s*(?:#{1,6}\s*)?4[.)]?\s*법령위험\s*분석(.*?)(?=(?:^|\n)\s*(?:#{1,6}\s*)?\d[.)]|\Z)')
+        ]
             
             for section_name, pattern in sections:
                 match = re.search(pattern, response_text, re.DOTALL)
                 if match:
                     section_content = match.group(1).strip()
                     
-                    # 제목 추출
-                    title_match = re.search(r'\*\*제목\*\*:\s*(.+?)(?:\n|\*\*)', section_content)
-                    if title_match:
-                        result[f'{section_name}_title'] = title_match.group(1).strip()
+                    # 🔍 디버깅: 각 섹션별 매칭 내용 출력
+                    logger.info(f"=== {section_name} 섹션 매칭 ===")
+                    logger.info(section_content[:300] + "..." if len(section_content) > 300 else section_content)
                     
-                    # 내용 추출
-                    content_match = re.search(r'\*\*내용\*\*:\s*(.+?)(?:\n### |$)', section_content, re.DOTALL)
+                    # 제목 추출
+                    title_match = re.search(r'(?m)^제목:\s*(.+)$', section_content)
+                    if title_match:
+                        title = title_match.group(1).strip()
+                        
+                        result[f'{section_name}_title'] = title
+                        logger.info(f"제목 추출 성공: {title}")
+                    else:
+                        logger.warning(f"{section_name} 제목 추출 실패")
+                    
+                    # 내용 추출 (** 제거 개선)
+                    content_match = re.search(r'내용:\s*(.+?)(?:\n\s*(?:제목:|$)|\Z)', section_content, re.DOTALL | re.MULTILINE)
                     if content_match:
-                        result[f'{section_name}_content'] = content_match.group(1).strip()
+                        content = content_match.group(1).strip()
+                        # 내용에서 ** 제거 (마크다운 볼드 제거)
+                        content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)  # **텍스트** -> 텍스트
+                        content = content.strip()  # 공백 제거
+                        
+                        result[f'{section_name}_content'] = content
+                        logger.info(f"내용 추출 성공: {content[:100]}...")
+                    else:
+                        logger.warning(f"{section_name} 내용 추출 실패")
+                else:
+                    logger.warning(f"{section_name} 섹션 전체 매칭 실패")
 
             
             basic_info = CategoryAnalysisResult(
@@ -710,42 +821,10 @@ class RiskAnalysisModel:
             
         except Exception as e:
             logger.error(f"카테고리별 상세 분석 응답 파싱 실패: {e}")
-            return self._get_fallback_detail_analysis_with_categories(category_risks)
+            import traceback
+            traceback.print_exc()
+            return None  # improve_model 방식으로 None 반환
     
-    def _get_fallback_detail_analysis_with_categories(self, category_risks: Dict[str, RiskLevel]):
-        """오류시 기본 상세 분석 (카테고리별 위험도 포함)"""
-        from generators.risk_report import CategoryAnalysisResult, DetailAnalysisResult
-        
-        basic_info = CategoryAnalysisResult(
-            title="기본 정보 확인",
-            content="분석 중 오류가 발생했습니다.",
-            risk_level=category_risks.get('basic_info', RiskLevel.WARN)
-        )
-        
-        rights_info = CategoryAnalysisResult(
-            title="권리관계 확인",
-            content="분석 중 오류가 발생했습니다.",
-            risk_level=category_risks.get('rights_info', RiskLevel.WARN)
-        )
-        
-        building_info = CategoryAnalysisResult(
-            title="건축물 확인",
-            content="분석 중 오류가 발생했습니다.",
-            risk_level=category_risks.get('building_info', RiskLevel.WARN)
-        )
-        
-        legal_info = CategoryAnalysisResult(
-            title="법령 준수 확인",
-            content="분석 중 오류가 발생했습니다.",
-            risk_level=category_risks.get('legal_info', RiskLevel.WARN)
-        )
-        
-        return DetailAnalysisResult(
-            basic_info=basic_info,
-            rights_info=rights_info,
-            building_info=building_info,
-            legal_info=legal_info
-        )
     
     def _generate_risk_message(self, risk_level: RiskLevel) -> str:
         """위험도별 메시지 생성"""
@@ -818,7 +897,6 @@ class RiskAnalysisModel:
     
     def _get_fallback_result(self):
         """오류시 기본 결과"""
-        from generators.risk_report import RiskAnalysisResult, DetailAnalysisResult, CategoryAnalysisResult
         
         # 기본 카테고리별 위험도
         default_category_risks = {
@@ -828,7 +906,37 @@ class RiskAnalysisModel:
             'legal_info': RiskLevel.WARN
         }
         
-        detail_analysis = self._get_fallback_detail_analysis_with_categories(default_category_risks)
+        # fallback 메서드 호출하지 않고 직접 생성
+        basic_info = CategoryAnalysisResult(
+            title="기본 정보 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=default_category_risks['basic_info']
+        )
+        
+        rights_info = CategoryAnalysisResult(
+            title="권리관계 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=default_category_risks['rights_info']
+        )
+        
+        building_info = CategoryAnalysisResult(
+            title="건축물 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=default_category_risks['building_info']
+        )
+        
+        legal_info = CategoryAnalysisResult(
+            title="법령 준수 확인",
+            content="분석 중 오류가 발생했습니다.",
+            risk_level=default_category_risks['legal_info']
+        )
+        
+        detail_analysis = DetailAnalysisResult(
+            basic_info=basic_info,
+            rights_info=rights_info,
+            building_info=building_info,
+            legal_info=legal_info
+        )
         
         return RiskAnalysisResult(
             risk_level=RiskLevel.WARN,
