@@ -798,10 +798,10 @@ class BuildingInfoExtractor:
 
         # 발급일 패턴들
         issue_date_patterns = [
-            r'발급일\s*:?\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',
-            r'발급일\s*:?\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})',
-            r'발급일\s*:?\s*(\d{4})-(\d{1,2})-(\d{1,2})',
-            r'발급일\s*:?\s*(\d{4})/(\d{1,2})/(\d{1,2})',
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})',
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})-(\d{1,2})-(\d{1,2})',
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})/(\d{1,2})/(\d{1,2})',
         ]
         
         for pattern in issue_date_patterns:
@@ -813,7 +813,7 @@ class BuildingInfoExtractor:
                     int_month = int(month)
                     int_day = int(day)
                     
-                    if 2000 <= int_year <= 2030 and 1 <= int_month <= 12 and 1 <= int_day <= 31:
+                    if 2020 <= int_year <= 2050 and 1 <= int_month <= 12 and 1 <= int_day <= 31:
                         result_date = f"{year}.{month.zfill(2)}.{day.zfill(2)}"
                         print(f"발급일 발견: {result_date}")
                         return result_date
