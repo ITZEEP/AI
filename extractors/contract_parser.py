@@ -15,6 +15,7 @@ from datetime import datetime
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.path_resolver import get_google_credentials_path
+from config.standard_clauses_manager import filter_custom_clauses_from_list
 
 # OK 환경 변수 및 Vision API 클라이언트 설정
 _vision_client = None
@@ -39,7 +40,7 @@ def get_vision_client():
     return _vision_client
 
 
-def parse_special_terms_to_list(text: str) -> List[str]:
+def parse_special_terms_to_list(text: str, filter_standard: bool = False) -> List[str]:
     """특약사항 텍스트를 번호나 불릿 포인트 기준으로 분리"""
     if not text or text.strip() == "[특약사항 추출 실패]":
         return []
@@ -92,30 +93,20 @@ def parse_special_terms_to_list(text: str) -> List[str]:
     for i, item in enumerate(items, 1):
         logger.debug(f"{i}. {item[:50]}...")
 
-    # 간단하게: 마지막 항목만 "임차인은 임대인의"로 분리
-    if len(items) > 0:
-        last_item = items[-1]
-        
-        # 마지막 항목에 "임차인은 임대인의"가 포함되어 있으면 분리
-        if "임차인은 임대인의" in last_item:
-            parts = last_item.split("임차인은 임대인의", 1)
-            if len(parts) == 2:
-                # 마지막 항목 제거
-                items = items[:-1]
-                
-                # 첫 번째 부분 추가 (공백 제거)
-                first_part = parts[0].strip()
-                if first_part:
-                    items.append(first_part)
-                
-                # 두 번째 부분 추가 ("임차인은 임대인의" 다시 붙여서)
-                second_part = ("임차인은 임대인의" + parts[1]).strip()
-                if second_part:
-                    items.append(second_part)
+    # 빈 항목 제거
+    items = [item for item in items if item and item.strip()]
 
-    print(f"2단계 (마지막 항목 분리): {len(items)}개 항목")
+    # 3. 새로 추가: 표준 특약 필터링
+    if filter_standard:
+        try:
+            original_count = len(items)
+            items = filter_custom_clauses_from_list(items)
+            filtered_count = len(items)
+            logger.info(f"표준 특약 필터링: {original_count}개 → {filtered_count}개 (표준 {original_count - filtered_count}개 제거)")
+        except Exception as e:
+            logger.error(f"표준 특약 필터링 실패: {e}, 원본 리스트 반환")
 
-    return [item for item in items if item and item.strip()]
+    return items
 
 # OK 텍스트 기반 PDF 특약사항 추출
 def extract_special_terms_text_pdf(pdf_path: str) -> str:
@@ -245,6 +236,7 @@ def extract_special_terms(pdf_path):
         "file_name": os.path.basename(pdf_path),
         "extracted_at": datetime.now().isoformat(),
         "source": "text",
+        "filtered": True  # 필터링 적용됨을 표시
     }
 
     try:
@@ -257,10 +249,42 @@ def extract_special_terms(pdf_path):
                 extracted_text = extract_special_terms_image_pdf(pdf_path)
                 result["source"] = "image"
 
-            # 특약사항을 리스트로 분리
-            special_terms_list = parse_special_terms_to_list(extracted_text)
+            # 특약사항을 리스트로 분리 
+            special_terms_list = parse_special_terms_to_list(extracted_text, filter_standard=True)
             result["special_terms"] = special_terms_list
-            result["raw_text"] = extracted_text.strip()  # 원본 텍스트도 보관
+            result["raw_text"] = extracted_text.strip()
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["special_terms"] = []
+        result["raw_text"] = ""
+
+    return result
+
+
+def extract_special_terms_all(pdf_path):
+    """계약서 모든 특약사항 추출 (표준 특약 포함)"""
+    result = {
+        "file_name": os.path.basename(pdf_path),
+        "extracted_at": datetime.now().isoformat(),
+        "source": "text",
+        "filtered": False  # 필터링 미적용을 표시
+    }
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            text = pdf.pages[0].extract_text()
+            if text and len(text.strip()) > 100:
+                extracted_text = extract_special_terms_text_pdf(pdf_path)
+                result["source"] = "text"
+            else:
+                extracted_text = extract_special_terms_image_pdf(pdf_path)
+                result["source"] = "image"
+
+            # 특약사항을 리스트로 분리 
+            special_terms_list = parse_special_terms_to_list(extracted_text, filter_standard=False)
+            result["special_terms"] = special_terms_list
+            result["raw_text"] = extracted_text.strip()
 
     except Exception as e:
         result["error"] = str(e)
@@ -283,13 +307,22 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="계약서 특약사항 추출기")
     parser.add_argument("file", type=str, help="계약서 PDF 파일 경로")
+    parser.add_argument("--all", action="store_true", help="표준 특약 포함하여 모든 특약사항 추출")
     args = parser.parse_args()
 
-    data = extract_special_terms(args.file)
+    # 추출 방식 선택 
+    if args.all:
+        data = extract_special_terms_all(args.file)
+        print("✓ 모든 특약사항 추출 (표준 특약 포함)")
+        suffix = "_전체특약"
+    else:
+        data = extract_special_terms(args.file)  
+        print("✓ 사용자 정의 특약사항만 추출")
+        suffix = "_사용자특약"
 
     output_dir = "C:/LLM/data/output/contract_json"
     base_name = os.path.splitext(os.path.basename(args.file))[0]
-    output_path = os.path.join(output_dir, f"{base_name}_특약.json")
+    output_path = os.path.join(output_dir, f"{base_name}{suffix}.json")
 
     save_json(data, output_path)
     print(f"[✔] 저장 완료: {output_path}")
@@ -299,3 +332,6 @@ if __name__ == "__main__":
         print(f"\n 추출된 특약사항 ({len(data['special_terms'])}개):")
         for i, term in enumerate(data['special_terms'], 1):
             print(f"{i}. {term[:100]}{'...' if len(term) > 100 else ''}")
+        
+        if not args.all and len(data['special_terms']) == 0:
+            print("\n → 추가된 사용자 정의 특약이 없습니다 (표준 계약서)")
