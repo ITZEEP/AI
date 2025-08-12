@@ -193,6 +193,7 @@ class BuildingInfoExtractor:
 
         approval_date = self.find_approval_date_improved(all_pages_text)
         violation_status = self.find_violation_status(all_pages_text)
+        issue_date = self.find_issue_date(all_pages_text)
 
         return {
             "대지위치": basic_info.get("대지위치", ""),
@@ -203,7 +204,8 @@ class BuildingInfoExtractor:
             "층수": basic_info.get("층수", None),
             "용도": basic_info.get("용도", []),
             "사용승인일": approval_date,
-            "위반건축물여부": violation_status
+            "위반건축물여부": violation_status,
+            "발급일": issue_date  # 발급일 추가
         }
 
     def extract_image_based_pdf_improved(self, doc, last_word: str) -> Optional[Dict]:
@@ -258,6 +260,7 @@ class BuildingInfoExtractor:
 
         cropped_text = self.reconstruct_text_from_ocr(cropped_words)
         basic_info = self.extract_basic_info_from_text_with_land_area(cropped_text)
+        
 
         # 개선된 사용승인일 검색
         print("전체 PDF에서 사용승인일 검색 중...")
@@ -311,6 +314,7 @@ class BuildingInfoExtractor:
         # 개선된 사용승인일 검색 사용
         approval_date = self.find_approval_date_improved(all_pages_text, ocr_words_by_page)
         violation_status = self.find_violation_status(all_pages_text)
+        issue_date = self.find_issue_date(all_pages_text)  
 
         return {
             "대지위치": basic_info.get("대지위치", ""),
@@ -321,7 +325,8 @@ class BuildingInfoExtractor:
             "층수": basic_info.get("층수", None),
             "용도": basic_info.get("용도", []),
             "사용승인일": approval_date,
-            "위반건축물여부": violation_status
+            "위반건축물여부": violation_status,
+            "발급일": issue_date  # 발급일 추가
         }
 
     def extract_basic_info_from_text_with_land_area(self, text):
@@ -788,6 +793,35 @@ class BuildingInfoExtractor:
         print(f"[parse_area_block] 매핑 결과: {result}")
         return result
     
+    def find_issue_date(self, full_text):
+        """발급일 찾기"""
+
+        # 발급일 패턴들
+        issue_date_patterns = [
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})',
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})-(\d{1,2})-(\d{1,2})',
+        r'(?:발\s*급\s*일)\s*:?\s*(\d{4})/(\d{1,2})/(\d{1,2})',
+        ]
+        
+        for pattern in issue_date_patterns:
+            match = re.search(pattern, full_text)
+            if match:
+                year, month, day = match.groups()
+                try:
+                    int_year = int(year)
+                    int_month = int(month)
+                    int_day = int(day)
+                    
+                    if 2020 <= int_year <= 2050 and 1 <= int_month <= 12 and 1 <= int_day <= 31:
+                        result_date = f"{year}.{month.zfill(2)}.{day.zfill(2)}"
+                        print(f"발급일 발견: {result_date}")
+                        return result_date
+                except ValueError:
+                    continue
+        
+        return ""
+    
     
     def reconstruct_text_from_ocr(self, cropped_words) -> str:
         """OCR 결과를 줄별로 재구성하여 텍스트 형태로 변환"""
@@ -1085,6 +1119,8 @@ class BuildingInfoExtractor:
                 json_result[key] = "정보없음"
             elif key == "용도" and isinstance(value, list):
                 json_result[key] = value if value else ["정보없음"]
+            elif key in ["사용승인일", "발급일"] and (value == "" or value is None):  # 발급일 처리 추가
+                json_result[key] = "정보없음"
             else:
                 json_result[key] = value if value != "" else "정보없음"
 
@@ -1101,7 +1137,7 @@ def main():
     parser.add_argument('--last-word', '-l', default='m',
                         help='크롭 범위의 끝 단어 (기본값: m)')
     parser.add_argument(
-        '--output-dir', '-o', default='../data/output/building_json', help='결과 저장 디렉토리')
+        '--output-dir', '-o', default='C:/LLM/data/output/building_json', help='결과 저장 디렉토리')
     parser.add_argument(
         '--debug', '-d', action='store_true', help='디버깅 모드 활성화')
 

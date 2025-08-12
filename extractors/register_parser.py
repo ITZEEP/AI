@@ -432,6 +432,7 @@ def extract_text_based_pdf(file_path, result):
                     match = re.search(r"발행일\s*(\d{4}/\d{2}/\d{2})", page_text)
                     if match:
                         result["발행일"] = match.group(1).strip()
+                        print(f"발행일 발견: {result['발행일']}")
 
             tables = page.find_tables(
                 table_settings={
@@ -489,6 +490,8 @@ def extract_text_based_pdf(file_path, result):
                         for j, cell in enumerate(row):
                             if cell and str(cell).strip():
                                 clean_cell = str(cell).replace("\n", " ").strip()
+                                # 셀 텍스트에서 구조 관련 띄어쓰기 미리 정리
+                                clean_cell = re.sub(r'구\s+조', '구조', clean_cell)
                                 header = header_row[j] if j < len(header_row) else f"컬럼{j}"
                                 
                                 # 순위번호 찾기
@@ -613,16 +616,14 @@ def check_legal_status(text_content, legal_status):
 
 
 def extract_title_section_info(table_data, title_data):
-    """표제부 정보를 추출하여 title_data 딕셔너리에 저장"""
+    
     _find_location_info(table_data, title_data)
     _find_jeonyu_info(table_data, title_data)
 
 
 def _find_location_info(table_data, extracted_data):
     """소재지번_건물명칭 정보 추출"""
-    if extracted_data["소재지번_건물명칭"]:
-        return
-
+    
     for row in table_data:
         if not row:
             continue
@@ -631,7 +632,10 @@ def _find_location_info(table_data, extracted_data):
                 continue
 
             cell_text = str(cell).strip()
-            if any(keyword in cell_text for keyword in ["소재지번", "건물명칭", "도로명주소"]):
+            
+            # 소재지번_건물명칭 추출 (아직 없는 경우만)
+            if (not extracted_data["소재지번_건물명칭"] and 
+                any(keyword in cell_text for keyword in ["소재지번", "건물명칭", "도로명주소"])):
                 for row_cell in row:
                     if row_cell and str(row_cell).strip():
                         cell_content = str(row_cell).strip()
@@ -641,8 +645,45 @@ def _find_location_info(table_data, extracted_data):
                         ]):
                             extracted_data["소재지번_건물명칭"] = cell_content.replace(
                                 "\n", " ").replace("  ", " ").strip()
-                            return
-
+                            break
+    
+    # 헤더와 데이터 매핑 방식으로 건물내역 추출
+    if not extracted_data.get("건물내역"):
+        for i, row in enumerate(table_data):
+            if not row:
+                continue
+            
+            row_text = " ".join([str(cell) for cell in row if cell])
+            
+            # 헤더 행 찾기
+            if "건물내역" in row_text or "건 물 내 역" in row_text:
+                # 다음 행에서 데이터 찾기
+                if i + 1 < len(table_data):
+                    data_row = table_data[i + 1]
+                    if data_row:
+                        # 헤더의 "건물내역" 컬럼 위치 찾기
+                        header_index = -1
+                        for j, header_cell in enumerate(row):
+                            if header_cell and ("건물내역" in str(header_cell) or "건 물 내 역" in str(header_cell)):
+                                header_index = j
+                                break
+                        
+                        # 해당 위치의 데이터 추출
+                        if header_index >= 0 and header_index < len(data_row):
+                            data_cell = data_row[header_index]
+                            if data_cell and "구조" in str(data_cell):
+                                cell_content = str(data_cell).strip()
+                                
+                                # "구조"까지만 추출
+                                if "구조" in cell_content:
+                                    structure_end = cell_content.find("구조") + 2  # "구조" 길이 2
+                                    structure = cell_content[:structure_end].strip()
+                                    
+                                    if structure and len(structure) > 3:
+                                        extracted_data["건물내역"] = structure
+                                        print(f"1동 건물표시에서 구조 추출: '{structure}'")
+                                        break
+            
 
 def _find_jeonyu_info(table_data, extracted_data):
     """전유부분의 건물번호와 건물내역 정보 추출"""
@@ -711,41 +752,22 @@ def _analyze_row_for_building_info(row):
                     building_info["building_number"] = cell_text
                     break
 
-        # 건물내역 패턴 검사
+        # 건물내역 패턴 검사 - 구조 정보만 추출
         building_detail_patterns = [
-            r'.*구\s*조.*\d+\.?\d*\s*m2',
-            r'.*구\s*조.*\d+\.?\d*\s*㎡',
-            r'.*구조.*\d+\.?\d*\s*m2',
-            r'.*구조.*\d+\.?\d*\s*㎡',
+            r'.*구\s*조.*',  # 면적 부분 제거, 구조만
+            r'.*구조.*',     # 면적 부분 제거, 구조만
         ]
         for pattern in building_detail_patterns:
             if re.search(pattern, cell_text) and not building_info["building_detail"]:
-                building_info["building_detail"] = cell_text
-                break
-
-        # 면적 정보가 있는 경우 구조 정보와 결합
-        area_pattern = r'\d+\.?\d*\s*(m2|㎡)'
-        if re.search(area_pattern, cell_text) and not building_info["building_detail"]:
-            structure_info = _find_structure_in_same_row(row, cell_idx)
-            if structure_info:
-                building_info["building_detail"] = f"{structure_info} {cell_text}"
+                # 면적 부분 제거하고 구조만 남기기
+                structure_only = re.sub(r'\s*\d+\.?\d*\s*(?:m2|㎡)', '', cell_text).strip()
+                # "구 조"를 "구조"로 변경
+                structure_only = structure_only.replace('구 조', '구조')
+                if structure_only:  # 빈 문자열이 아닌 경우만
+                    building_info["building_detail"] = structure_only
+                    break
 
     return building_info
-
-
-def _find_structure_in_same_row(row, exclude_cell_idx):
-    """같은 행에서 구조 정보 찾기"""
-    structure_keywords = ["콘크리트", "구조", "철골", "철근", "목구조", "벽돌", "블록"]
-    for cell_idx, cell in enumerate(row):
-        if cell_idx == exclude_cell_idx or not cell:
-            continue
-
-        cell_text = str(cell).strip()
-        if any(keyword in cell_text for keyword in structure_keywords):
-            if not re.search(r'\d+\.?\d*\s*(m2|㎡)', cell_text):
-                return cell_text
-    return None
-
 
 def _extract_latest_owner_info(gabgu_data) -> Dict[str, Any]:
     """갑구 데이터에서 최신 소유자 정보 추출"""
@@ -891,11 +913,19 @@ def _prepare_risk_analysis_data(result, owner_info, mortgage_info) -> Dict[str, 
             region_address = parts[0].strip()  # 도로명주소 앞부분만
             road_address = parts[1].strip()    # 도로명주소 부분만
     
+    # 건물내역에서 띄어쓰기 수정
+    building_detail = result["표제부"].get("건물내역") or ""
+    if building_detail:
+        building_detail = building_detail.replace('구 조', '구조')
+    
     risk_data = {
         "region_address": region_address,
         "road_address": road_address,
+        "building_number": result["표제부"].get("건물번호") or "",  # 건물번호 추가
+        "building_detail": building_detail,  # 건물내역 추가
         "owner_name": owner_info.get("소유자명") or "",
         "owner_birth_date": _parse_birth_date_from_id(owner_info.get("주민번호")),
+        "issue_date": result.get("발행일") or "",  # 발행일 추가
         "has_seizure": result["법적상태"]["가압류_여부"],
         "has_auction": result["법적상태"]["경매_여부"], 
         "has_litigation": result["법적상태"]["소송_여부"],
@@ -971,14 +1001,6 @@ def _extract_amount_from_korean(amount_str: str) -> Optional[int]:
     
     return None
 
-
-def extract_title_info(lines):
-    """기존 함수 - 더 이상 사용하지 않지만 하위 호환성을 위해 유지"""
-    title_info = {}
-    for line in lines:
-        if "표제부" in line:
-            title_info["표제부 라벨"] = line
-    return title_info
 
 
 def save_json(output_dict, output_path):
