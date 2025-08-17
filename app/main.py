@@ -1886,6 +1886,32 @@ async def generate_contract(
     """
     
     try:
+        # UTF-8 인코딩 처리 (multipart/form-data 한글 문제 해결)
+        try:
+            ownerNickname = ownerNickname.encode('latin-1').decode('utf-8')
+            buyerNickname = buyerNickname.encode('latin-1').decode('utf-8')
+            addr1 = addr1.encode('latin-1').decode('utf-8')
+            addr2 = addr2.encode('latin-1').decode('utf-8')
+            landCategory = landCategory.encode('latin-1').decode('utf-8')
+            buildingStructure = buildingStructure.encode('latin-1').decode('utf-8')
+            purpose = purpose.encode('latin-1').decode('utf-8')
+            textDepositPrice = textDepositPrice.encode('latin-1').decode('utf-8')
+            bankAccount = bankAccount.encode('latin-1').decode('utf-8') if bankAccount else ""
+            textMaintenanceFee = textMaintenanceFee.encode('latin-1').decode('utf-8')
+            ownerAddr = ownerAddr.encode('latin-1').decode('utf-8')
+            buyerAddr = buyerAddr.encode('latin-1').decode('utf-8')
+            ownerSsn = ownerSsn.encode('latin-1').decode('utf-8')
+            buyerSsn = buyerSsn.encode('latin-1').decode('utf-8')
+            ownerPhoneNumber = ownerPhoneNumber.encode('latin-1').decode('utf-8')
+            buyerPhoneNumber = buyerPhoneNumber.encode('latin-1').decode('utf-8')
+            
+            # 특약사항도 인코딩 처리
+            if special:
+                special = special.encode('latin-1').decode('utf-8')
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            # 이미 UTF-8로 되어있는 경우 패스
+            pass
+        
         logger.info(f"Contract generation requested for {ownerNickname} - {buyerNickname}")
         
         # 템플릿 경로 설정 (필수)
