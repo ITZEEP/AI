@@ -585,6 +585,12 @@ class SaveFinalContractDTO(BaseModel):
                                         example=["본 계약은 주택임대차보호법의 적용을 받습니다.", 
                                                "임차인은 임대인의 서면 동의 없이 임차권을 양도하거나 전대할 수 없습니다."])
     
+    # 서명 이미지 (Base64 인코딩) - JSON 방식용
+    owner_sign1_base64: Optional[str] = Field(None, alias="ownerSign1Base64", description="임대인 서명1 Base64 (미납세금 있을 때)")
+    owner_sign2_base64: Optional[str] = Field(None, alias="ownerSign2Base64", description="임대인 서명2 (선순위 확정일자 있을 때)")
+    owner_sign3_base64: Optional[str] = Field(None, alias="ownerSign3Base64", description="임대인 서명3 (기본)")
+    buyer_sign1_base64: Optional[str] = Field(None, alias="buyerSign1Base64", description="임차인 서명 Base64")
+    
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -2093,9 +2099,21 @@ async def generate_contract(
     
     **인코딩 문제가 없는 안전한 방식입니다!**
     
+    **서명 이미지 처리**:
+    - 서명 이미지는 Base64 문자열로 전송
+    - ownerSign1Base64: 조세 체납 관련 서명
+    - ownerSign2Base64: 선순위 확정일자 관련 서명
+    - ownerSign3Base64: 임대인 기본 서명
+    - buyerSign1Base64: 임차인 서명
+    
     **Spring에서 호출 예시**:
     ```java
     SaveFinalContractDTO dto = // ... DTO 생성
+    
+    // 서명 이미지를 Base64로 변환
+    if (ownerSignatureImage1 != null) {
+        dto.setOwnerSign1Base64(Base64.getEncoder().encodeToString(ownerSignatureImage1));
+    }
     
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
@@ -2129,21 +2147,74 @@ async def generate_contract_json(contract_data: SaveFinalContractDTO):
             logger.error(f"Template file not found: {template_path}")
             raise HTTPException(status_code=500, detail="템플릿 파일을 찾을 수 없습니다.")
         
-        # PDF 생성기 초기화
-        pdf_replacer = PDFTextReplacer(template_path)
+        # PDF 생성기 초기화 (인자 없이)
+        pdf_replacer = PDFTextReplacer()
         
         # SaveFinalContractDTO를 딕셔너리로 변환
         contract_dict = contract_data.model_dump()
         
-        # snake_case를 camelCase로 변환
+        # Base64 서명 이미지 처리
+        images = {}
+        import base64
+        
+        def safe_b64decode(b64_string):
+            """Base64 문자열을 안전하게 디코딩 (패딩 문제 해결)"""
+            if not b64_string:
+                return None
+            try:
+                # 패딩 문제 해결 - base64 문자열 길이를 4의 배수로 맞춤
+                missing_padding = len(b64_string) % 4
+                if missing_padding:
+                    b64_string += '=' * (4 - missing_padding)
+                return base64.b64decode(b64_string)
+            except Exception as e:
+                logger.warning(f"Base64 decode failed: {e}")
+                return None
+        
+        # 임대인 서명1 (조세 체납 관련)
+        if contract_data.has_tax_arrears and contract_data.owner_sign1_base64:
+            decoded = safe_b64decode(contract_data.owner_sign1_base64)
+            if decoded:
+                images['ownerSign1'] = decoded
+                logger.info("Decoded owner signature 1 (tax arrears)")
+        
+        # 임대인 서명2 (선순위 확정일자 관련)
+        if contract_data.has_prior_fixed_date and contract_data.owner_sign2_base64:
+            decoded = safe_b64decode(contract_data.owner_sign2_base64)
+            if decoded:
+                images['ownerSign2'] = decoded
+                logger.info("Decoded owner signature 2 (prior fixed date)")
+        
+        # 임대인 서명3 (기본 서명)
+        if contract_data.owner_sign3_base64:
+            decoded = safe_b64decode(contract_data.owner_sign3_base64)
+            if decoded:
+                images['ownerSign3'] = decoded
+                logger.info("Decoded owner signature 3 (main)")
+        
+        # 임차인 서명
+        if contract_data.buyer_sign1_base64:
+            decoded = safe_b64decode(contract_data.buyer_sign1_base64)
+            if decoded:
+                images['buyerSign1'] = decoded
+                logger.info("Decoded buyer signature 1")
+        
+        # snake_case를 camelCase로 변환 (Base64 필드 제외)
         contract_dict_camel = {}
         for key, value in contract_dict.items():
+            # Base64 필드는 제외
+            if key.endswith('_base64'):
+                continue
             # snake_case를 camelCase로 변환
             camel_key = ''.join(word.capitalize() if i > 0 else word for i, word in enumerate(key.split('_')))
             contract_dict_camel[camel_key] = value
         
-        # PDF 생성
-        pdf_content = pdf_replacer.generate_contract_pdf(contract_dict_camel)
+        # PDF 생성 (서명 이미지 포함)
+        pdf_content = pdf_replacer.generate_contract_pdf(
+            template_path,
+            contract_dict_camel,
+            images if images else None
+        )
         
         if not pdf_content:
             raise HTTPException(status_code=500, detail="PDF 생성에 실패했습니다.")
