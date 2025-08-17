@@ -53,8 +53,8 @@ class DtoConverter:
         if not date_str:
             return None
         
-        # YYYY.MM.DD 형식을 YYYY-MM-DD로 변환
-        formatted_date = date_str.replace(".", "-")
+        # YYYY.MM.DD 또는 YYYY/MM/DD 형식을 YYYY-MM-DD로 변환
+        formatted_date = date_str.replace(".", "-").replace("/", "-")
         
         try:
             datetime.strptime(formatted_date, "%Y-%m-%d")
