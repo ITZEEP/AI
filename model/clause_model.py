@@ -284,9 +284,9 @@ class ClauseGenerationModel:
         chain = prompt | self.llm | StrOutputParser()
         
         # 특약 생성 (재시도 로직 적용)
-        for attempt in range(3):
+        for attempt in range(5):
             try:
-                logger.info(f"특약 생성 시도 {attempt + 1}/3 (재시도 로직 활성화)")
+                logger.info(f"특약 생성 시도 {attempt + 1}/5 (재시도 로직 활성화)")
                 
                 # 재시도 로직이 적용된 API 호출
                 result = self._call_gemini_api(chain, {
