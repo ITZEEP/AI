@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from config.logger_config import get_logger
 logger = get_logger(__name__)
+from defense.ai_prompt_defense import get_ai_defense_model
 
 class ThreatLevel(Enum):
     """위협 수준"""
@@ -263,19 +264,20 @@ class HybridPromptDefense:
             # AI 모델 lazy loading
             if self._ai_model is None:
                 logger.info("AI 분석 모델 로딩 중...")
-                from ai_prompt_defense import get_ai_defense_model
                 self._ai_model = get_ai_defense_model()
             
             # AI 분석 실행
             ai_result = self._ai_model.analyze_and_clean_content(part, input_type)
             
-            # 위험 요소 여부 판단
-            has_threats = ai_result["analysis_details"].get("has_threats", False)
-            
+            # 위협 여부는 threat_count/removed_sentences로 보수적으로 판단
+            threat_count = int(ai_result.get("threat_count", 0))
+            removed = ai_result.get("removed_sentences", []) or []
+            has_threats = (threat_count > 0) or (len(removed) > 0)
+
             return {
                 "is_dangerous": has_threats,
                 "method": "ai_dangerous" if has_threats else "ai_safe",
-                "reason": ai_result["analysis_details"].get("overall_assessment", "AI 분석 완료")
+                "reason": f"AI 판정: 위험 요소 {threat_count}개 제거됨" if has_threats else "AI 판정: 위험 요소 없음",
             }
             
         except Exception as e:

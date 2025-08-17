@@ -49,7 +49,7 @@ class AIPromptDefenseModel:
             logger.error(f"AI 방어 모델 초기화 실패: {e}")
             raise
     
-    @retry_gemini_api(max_retries=3, initial_delay=1.0, backoff_multiplier=1.5)
+    @retry_gemini_api(max_retries=5, initial_delay=1.0, backoff_multiplier=1.5)
     def _call_defense_api(self, chain, invoke_params):
         """
         방어용 Gemini API 호출
