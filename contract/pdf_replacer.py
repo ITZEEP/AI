@@ -553,6 +553,7 @@ class PDFTextReplacer:
             # 조건에 따라 이미지 필터링
             filtered_images = {}
             if images:
+                # 옵셔널 필드: 받지 않으면 False로 처리 (서명 없이 계약서 생성)
                 has_tax_arrears = contract_data.get('hasTaxArrears', False)
                 has_prior_fixed_date = contract_data.get('hasPriorFixedDate', False)
                 
@@ -564,7 +565,7 @@ class PDFTextReplacer:
                 if has_prior_fixed_date and 'ownerSign2' in images:
                     filtered_images['ownerSign2'] = images['ownerSign2']
                 
-                # ownerSign3과 buyerSign1은 항상 포함
+                # ownerSign3과 buyerSign1은 항상 포함 (이미지가 있을 때만)
                 if 'ownerSign3' in images:
                     filtered_images['ownerSign3'] = images['ownerSign3']
                 if 'buyerSign1' in images:
@@ -617,6 +618,7 @@ class PDFTextReplacer:
         })
         
         # hasTaxArrears로 체크박스 설정 (미납 국세/지방세)
+        # 옵셔널 필드: 받지 않으면 False (없음)으로 처리
         has_tax_arrears = contract_data.get('hasTaxArrears', False)
         replacements.update({
             "${3}": "■" if has_tax_arrears else "□",  # 있음
@@ -624,7 +626,8 @@ class PDFTextReplacer:
         })
         
         # hasPriorFixedDate로 체크박스 설정 (선순위 확정일자)
-        has_prior_fixed_date = contract_data.get('hasPriorFixedDate', True)
+        # 옵셔널 필드: 받지 않으면 False (없음)으로 처리
+        has_prior_fixed_date = contract_data.get('hasPriorFixedDate', False)
         replacements.update({
             "${5}": "■" if has_prior_fixed_date else "□",  # 있음
             "${6}": "□" if has_prior_fixed_date else "■",  # 없음

@@ -535,9 +535,9 @@ class SaveFinalContractDTO(BaseModel):
     addr2: str = Field(..., description="임차할 부분 주소", example="101동 1501호")
     supply_area: float = Field(..., alias="supplyArea", description="임차할 부분 면적", example=84.5)
     
-    # 계약 조건
-    has_tax_arrears: bool = Field(..., alias="hasTaxArrears", description="미납 국세, 지방세 여부", example=False)
-    has_prior_fixed_date: bool = Field(..., alias="hasPriorFixedDate", description="선순위 확정일자 현황", example=True)
+    # 계약 조건 (옵셔널 - 서명 없이 계약서 생성 가능)
+    has_tax_arrears: Optional[bool] = Field(None, alias="hasTaxArrears", description="미납 국세, 지방세 여부 (선택사항, 기본값: False)", example=False)
+    has_prior_fixed_date: Optional[bool] = Field(None, alias="hasPriorFixedDate", description="선순위 확정일자 현황 (선택사항, 기본값: False)", example=False)
     
     # 계약 내용
     text_deposit_price: str = Field(..., alias="textDepositPrice", description="보증금 금액 (한글)", example="삼억")
