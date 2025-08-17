@@ -351,6 +351,8 @@ class RegistryDocumentDto(BaseModel):
     """
     region_address: str = Field(..., alias="regionAddress", description="소재지번 주소", example="서울특별시 강남구 대치동 123-45")
     road_address: str = Field("", alias="roadAddress", description="도로명주소", example="서울특별시 강남구 테헤란로 123")
+    building_number: str = Field("", alias="buildingNumber", description="건물번호", example="1234567890123")
+    building_detail: str = Field("", alias="buildingDetail", description="건물내역", example="철근콘크리트구조 5층")
     owner_name: str = Field(..., alias="ownerName", description="소유자명", example="홍길동")
     owner_birth_date: Optional[str] = Field(None, alias="ownerBirthDate", description="소유자 생년월일", example="1970-01-01")
     debtor: Optional[str] = Field(None, description="채무자", example="홍길동")
@@ -359,6 +361,7 @@ class RegistryDocumentDto(BaseModel):
     has_auction: bool = Field(False, alias="hasAuction", description="경매 여부", example=False)
     has_litigation: bool = Field(False, alias="hasLitigation", description="소송 여부", example=False)
     has_attachment: bool = Field(False, alias="hasAttachment", description="압류 여부", example=False)
+    issue_date: Optional[str] = Field(None, alias="issueDate", description="발급일", example="2024-01-01")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -370,11 +373,13 @@ class BuildingDocumentDto(BaseModel):
     """
     site_location: str = Field(..., alias="siteLocation", description="대지위치", example="서울특별시 강남구 대치동 123-45")
     road_address: str = Field("", alias="roadAddress", description="도로명주소", example="서울특별시 강남구 테헤란로 123")
+    land_area: float = Field(0.0, alias="landArea", description="대지면적 (㎡)", example=250.5)
     total_floor_area: float = Field(..., alias="totalFloorArea", description="연면적 (㎡)", example=84.5)
     purpose: str = Field("", description="건물 용도", example="아파트")
     floor_number: int = Field(0, alias="floorNumber", description="층수", example=15)
     approval_date: Optional[str] = Field(None, alias="approvalDate", description="사용승인일 (YYYY.MM.DD)", example="2010-05-15")
     is_violation_building: bool = Field(False, alias="isViolationBuilding", description="위반건축물 여부", example=False)
+    issue_date: Optional[str] = Field(None, alias="issueDate", description="발급일", example="2024-01-01")
 
     model_config = ConfigDict(populate_by_name=True)
 

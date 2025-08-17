@@ -16,13 +16,15 @@ class DtoConverter:
     def convert_building_to_dto(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
         """건축물대장 OCR 결과를 Spring BuildingDocumentDto 형식으로 변환"""
         return {
-            "siteLocation": f"{ocr_result.get('대지위치', '')} {ocr_result.get('지번', '')}",
+            "siteLocation": f"{ocr_result.get('대지위치', '')} {ocr_result.get('지번', '')}".strip(),
             "roadAddress": ocr_result.get("도로명주소", ""),
-            "totalFloorArea": float(ocr_result.get("연면적", 0)),
+            "landArea": float(ocr_result.get("대지면적", 0)) if ocr_result.get("대지면적") else 0,  # 대지면적 추가
+            "totalFloorArea": float(ocr_result.get("연면적", 0)) if ocr_result.get("연면적") else 0,
             "purpose": DtoConverter._extract_purpose(ocr_result.get("용도")),
             "floorNumber": DtoConverter._extract_floor_number(ocr_result.get("층수")),
             "approvalDate": DtoConverter._format_date(ocr_result.get("사용승인일")),
-            "isViolationBuilding": ocr_result.get("위반건축물여부") == "예"
+            "isViolationBuilding": ocr_result.get("위반건축물여부") == "예",
+            "issueDate": DtoConverter._format_date(ocr_result.get("발급일"))  # 발급일 추가
         }
     
     @staticmethod
@@ -72,6 +74,8 @@ class DtoConverter:
         return {
             "regionAddress": risk_data.get("region_address", ""),
             "roadAddress": risk_data.get("road_address", ""),
+            "buildingNumber": risk_data.get("building_number", ""),  # 건물번호 추가
+            "buildingDetail": risk_data.get("building_detail", ""),  # 건물내역 추가
             "ownerName": risk_data.get("owner_name", ""),
             "ownerBirthDate": risk_data.get("owner_birth_date"),
             "debtor": risk_data.get("debtor", ""),
@@ -79,7 +83,8 @@ class DtoConverter:
             "hasSeizure": risk_data.get("has_seizure", False),
             "hasAuction": risk_data.get("has_auction", False),
             "hasLitigation": risk_data.get("has_litigation", False),
-            "hasAttachment": risk_data.get("has_attachment", False)
+            "hasAttachment": risk_data.get("has_attachment", False),
+            "issueDate": DtoConverter._format_date(risk_data.get("issue_date"))  # 발급일 추가
         }
     
     @staticmethod
