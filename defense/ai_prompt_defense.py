@@ -123,12 +123,13 @@ class AIPromptDefenseModel:
             logger.error(f"AI 방어 분석 중 오류: {e}")
             # 오류 시 보수적으로 처리 (원본 그대로 반환하되 경고)
             return {
-                "is_safe": True,
+                "is_safe": False,  # 분석 실패 → 안전 미보장
                 "original_content": content,
-                "cleaned_content": content,
+                "cleaned_content": "",
                 "removed_sentences": [],
                 "analysis_details": {"error": str(e)},
-                "fallback_used": True
+                "fallback_used": True,
+                "threat_count": 0
             }
     
     def _split_into_sentences(self, content: str) -> List[str]:
@@ -266,19 +267,18 @@ class AIPromptDefenseModel:
         try:
             logger.debug(f"AI 원본 응답 (처음 200자): {result[:200]}...")
             
-            # 1. ```json과 ``` 사이의 JSON 추출
-            json_pattern = r'```json\s*(\{.*?\})\s*```'
-            json_match = re.search(json_pattern, result, re.DOTALL)
-            
-            if json_match:
-                json_str = json_match.group(1)
+            # 1) ```json ... ``` 코드블록 내부 전체를 캡쳐
+            json_block_match = re.search(r'```json\s*(.*?)\s*```', result, re.DOTALL)
+            if json_block_match:
+                json_str = json_block_match.group(1).strip()
                 logger.debug("```json``` 블록에서 JSON 추출 성공")
             else:
-                # 2. 일반적인 {} JSON 추출
-                json_match = re.search(r'\{.*\}', result, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                    logger.debug("일반 JSON 패턴으로 추출 성공")
+                # 2) 폴백: 첫 `{`부터 마지막 `}`까지 범위를 잡아 파싱 시도
+                start = result.find('{')
+                end = result.rfind('}')
+                if start != -1 and end != -1 and end > start:
+                    json_str = result[start:end+1]
+                    logger.debug("중괄호 범위로 JSON 추출 성공")
                 else:
                     logger.warning("JSON 패턴을 찾을 수 없음")
                     logger.debug(f"전체 응답: {result}")
@@ -291,6 +291,18 @@ class AIPromptDefenseModel:
             if "has_threats" not in analysis_data:
                 analysis_data["has_threats"] = False
             if "dangerous_indices" not in analysis_data:
+                analysis_data["dangerous_indices"] = []
+            # 인덱스 타입/범위 정규화
+            try:
+                norm = set()
+                for i in analysis_data["dangerous_indices"]:
+                    # 숫자/숫자문자만 허용
+                    if isinstance(i, int):
+                        norm.add(i)
+                    elif isinstance(i, str) and i.strip().isdigit():
+                        norm.add(int(i.strip()))
+                analysis_data["dangerous_indices"] = sorted(norm)
+            except Exception:
                 analysis_data["dangerous_indices"] = []
             
             logger.debug(f"JSON 파싱 성공: has_threats={analysis_data['has_threats']}")
