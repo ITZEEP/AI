@@ -105,8 +105,6 @@ class AIPromptDefenseModel:
                 )
                 
                 logger.warning(f"위험 문장 {len(removed_sentences)}개 제거됨")
-                for i, removed in enumerate(removed_sentences, 1):
-                    logger.warning(f"  {i}. {removed[:50]}...")
                 
                 return {
                     "is_safe": len(cleaned_content.strip()) > 0,  # 정화 후에도 내용이 남아있으면 안전
@@ -304,7 +302,7 @@ class AIPromptDefenseModel:
                 analysis_data["dangerous_indices"] = sorted(norm)
             except Exception:
                 analysis_data["dangerous_indices"] = []
-             # 일관성 보정: 인덱스가 존재하면 has_threats는 True
+            # 일관성 보정: 인덱스가 존재하면 has_threats는 True
             analysis_data["has_threats"] = bool(analysis_data.get("has_threats")) or bool(analysis_data["dangerous_indices"])
             
             logger.debug(f"JSON 파싱 성공: has_threats={analysis_data['has_threats']}")
@@ -327,7 +325,6 @@ class AIPromptDefenseModel:
         for i, sentence in enumerate(sentences, 1):
             if i in dangerous_indices:
                 removed_sentences.append(sentence)
-                logger.debug(f"문장 {i} 제거: {sentence[:50]}...")
             else:
                 safe_sentences.append(sentence)
         
