@@ -31,6 +31,15 @@ from config.logger_config import get_logger
 logger = get_logger(__name__)
 
 
+# Data types imported from risk_types module
+
+
+# Data types imported from risk_types module
+
+
+# Analysis result types imported from risk_types module
+
+
 class RiskReportGenerator:
     """위험도 분석 리포트 생성기 - Spring 연동 전용 (완전한 정적 메서드 버전)"""
     

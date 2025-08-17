@@ -179,7 +179,7 @@ class ClauseAssessmentModel:
                     clause_group[0], owner_context, tenant_context, group_llm
                 )
             else:               
-                for batch_attempt in range(5):
+                for batch_attempt in range(3):
                     try:
                         # 배치 평가 실행
                         assessments = self._assess_multiple_clauses_with_retry(
@@ -228,8 +228,8 @@ class ClauseAssessmentModel:
 {standard_clauses}
 
 # 평가 기준:
-- **안심**: 해당 당사자의 정당한 권익을 보호하고, 상대방에게도 과도한 부담을 주지 않는 합리적인 특약
-- **주의**: 해당 당사자에게 불합리한 부담이나 위험을 초래할 수 있거나, 권익 보호에 미흡한 특약
+- **안심**: 해당 당사자에게 유리하거나 공정하고 균형적인 특약
+- **주의**: 해당 당사자에게 불리하거나 위험할 수 있는 특약
 
 # 평가 시 고려사항:
 1. 각 당사자의 사전조사 내용과 특약의 연관성
@@ -330,8 +330,8 @@ class ClauseAssessmentModel:
 {standard_clauses}
 
 # 평가 기준:
-- **안심**: 해당 당사자의 정당한 권익을 보호하고, 상대방에게도 과도한 부담을 주지 않는 합리적인 특약
-- **주의**: 해당 당사자에게 불합리한 부담이나 위험을 초래할 수 있거나, 권익 보호에 미흡한 특약
+- **안심**: 해당 당사자에게 유리하거나 공정하고 균형적인 특약
+- **주의**: 해당 당사자에게 불리하거나 위험할 수 있는 특약
 
 # 평가 시 고려사항:
 1. 각 당사자의 사전조사 내용과 특약의 연관성
