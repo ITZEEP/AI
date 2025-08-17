@@ -54,8 +54,11 @@ credentials/
 .env.*
 !.env.example
 
-# Data and Models
-data/
+# Data and Models (except font directory)
+data/*
+!data/font/
+data/font/*.ttf
+!data/font/README.md
 vectorstore/
 *.db
 *.sqlite
@@ -83,6 +86,7 @@ tmp/
 ocr_debug.json
 *.pdf
 !example/*.pdf
+!templates/README.md
 extracted_texts/
 
 # Jupyter

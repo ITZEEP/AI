@@ -1,12 +1,14 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from pydantic import BaseModel, Field, ConfigDict
 import os
 import tempfile
 import traceback
-from typing import Optional, List
+import json
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+from decimal import Decimal
 
 # UTF-8 인코딩 설정
 import sys
@@ -29,6 +31,9 @@ from app.parsers.dto_converter import DtoConverter
 from generators.risk_report import RiskReportGenerator
 from generators.clause_report import ClauseReportGenerator
 from generators.improve_report import ClauseImprovementController
+
+# 계약서 생성 import
+from contract.pdf_replacer import PDFTextReplacer
 
 # 로거 설정
 logger = get_logger(__name__)
@@ -58,6 +63,10 @@ app = FastAPI(
         {
             "name": "특약 추천",
             "description": "AI 기반 특약 추천 및 개선"
+        },
+        {
+            "name": "계약서 생성",
+            "description": "PDF 계약서 생성"
         }
     ]
 )
@@ -101,6 +110,230 @@ except Exception as e:
 
 
 # Request Models
+class ContractGenerationRequest(BaseModel):
+    """계약서 생성 요청 모델"""
+    
+    # 체크박스 (true면 첫번째 ■, false면 두번째 ■)
+    checkbox1: bool = Field(
+        default=True,
+        description="체크박스1 (${1}, ${2})"
+    )
+    
+    checkbox2: bool = Field(
+        default=False,
+        description="체크박스2 (${3}, ${4})"
+    )
+    
+    checkbox3: bool = Field(
+        default=True,
+        description="체크박스3 (${5}, ${6})"
+    )
+    
+    checkbox4: bool = Field(
+        default=False,
+        description="체크박스4 (${7}, ${8})"
+    )
+    
+    # 부동산 정보
+    roadAddr: str = Field(
+        ...,
+        description="도로명 주소",
+        example="서울특별시 광진구 화양동 37"
+    )
+    
+    addr2: str = Field(
+        default="",
+        description="상세 주소",
+        example="201호"
+    )
+    
+    # 면적 정보
+    site1: str = Field(
+        default="",
+        description="대지 면적",
+        example="70.3"
+    )
+    
+    site2: str = Field(
+        default="",
+        description="건물 면적",
+        example="142.5"
+    )
+    
+    site3: str = Field(
+        default="",
+        description="실제 면적",
+        example="56.3"
+    )
+    
+    use: str = Field(
+        default="",
+        description="건물 구조/용도",
+        example="철근/콘크리트"
+    )
+    
+    # 금액 정보
+    deposit: str = Field(
+        ...,
+        description="보증금 (숫자)",
+        example="15000000"
+    )
+    
+    kDeposit: str = Field(
+        ...,
+        description="보증금 (한글)",
+        example="천오백만"
+    )
+    
+    monthly: str = Field(
+        default="",
+        description="월세",
+        example="200000"
+    )
+    
+    maintenance: str = Field(
+        default="",
+        description="관리비 (숫자)",
+        example="70000"
+    )
+    
+    kMaintenance: str = Field(
+        default="",
+        description="관리비 (한글)",
+        example="칠만"
+    )
+    
+    pd: str = Field(
+        default="",
+        description="납부일",
+        example="3"
+    )
+    
+    ownerAccount: str = Field(
+        default="",
+        description="임대인 계좌",
+        example="카카오뱅크 3333030020238"
+    )
+    
+    # 계약 기간
+    sy: str = Field(
+        ...,
+        description="시작 년도",
+        example="2024"
+    )
+    
+    sm: str = Field(
+        ...,
+        description="시작 월",
+        example="01"
+    )
+    
+    sd: str = Field(
+        ...,
+        description="시작 일",
+        example="15"
+    )
+    
+    ey: str = Field(
+        ...,
+        description="종료 년도",
+        example="2024"
+    )
+    
+    em: str = Field(
+        ...,
+        description="종료 월",
+        example="12"
+    )
+    
+    ed: str = Field(
+        ...,
+        description="종료 일",
+        example="31"
+    )
+    
+    nowY: str = Field(
+        ...,
+        description="계약 년도",
+        example="2025"
+    )
+    
+    nowM: str = Field(
+        ...,
+        description="계약 월",
+        example="08"
+    )
+    
+    nowD: str = Field(
+        ...,
+        description="계약 일",
+        example="11"
+    )
+    
+    # 당사자 정보
+    owner: str = Field(
+        default="임대인",
+        description="임대인 이름",
+        example="임대인"
+    )
+    
+    buyer: str = Field(
+        default="임차인",
+        description="임차인 이름",
+        example="임차인"
+    )
+    
+    ownerAddr: str = Field(
+        default="",
+        description="임대인 주소",
+        example="임대인 주소"
+    )
+    
+    ownerId: str = Field(
+        default="",
+        description="임대인 주민등록번호",
+        example="111111-1111111"
+    )
+    
+    ownerPhone: str = Field(
+        default="",
+        description="임대인 연락처",
+        example="010-1111-1111"
+    )
+    
+    buyerAddr: str = Field(
+        default="",
+        description="임차인 주소",
+        example="임차인 주소"
+    )
+    
+    buyerId: str = Field(
+        default="",
+        description="임차인 주민등록번호",
+        example="222222-2222222"
+    )
+    
+    buyerPhone: str = Field(
+        default="",
+        description="임차인 연락처",
+        example="010-2222-2222"
+    )
+    
+    # 특약사항
+    special: List[str] = Field(
+        default_factory=list,
+        description="특약사항 리스트",
+        example=[
+            "임대차계약을 체결한 임차인은 임대차계약 체결 시를 기준으로 임대인이 사전에 고지하지 않은 선순위 임대차 정보(주택임대차보호법 제3조의6 제3항)가 있거나 미납 또는 체납한 국세·지방세가 _______원을 초과하는 것을 확인한 경우 임대차기간이 시작하는 날까지 제5조에도 불구하고 계약금 등의 명목으로 임대인에게 교부한 금전 기타 물건을 포기하지 않고 임대차계약을 해제할 수 있다.",
+            "계약 위반 시 계약금의 50%를 위약금으로 지급한다.",
+            "임차인은 임대차 기간 만료 1개월 전까지 계약 연장 의사를 표명하여야 한다.",
+            "임대인은 임차인의 동의 없이 제3자에게 임대차 권리를 양도할 수 없다."
+        ]
+    )
+    
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class MortgageeInfo(BaseModel):
     """근저당권 정보"""
     priority_number: int = Field(..., alias="priorityNumber", description="순위번호", example=1)
@@ -276,6 +509,75 @@ class OcrResultDto(BaseModel):
     source: str = Field(..., description="추출 방식", example="text")
     special_terms: List[str] = Field(..., alias="specialTerms", description="특약사항 목록")
     raw_text: str = Field(..., alias="rawText", description="원본 텍스트", example="전체 OCR 텍스트...")
+    
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SaveFinalContractDTO(BaseModel):
+    """최종 계약서 생성 요청 모델"""
+    # 전세/월세 구분
+    lease_type: bool = Field(..., alias="leaseType", description="전세: True / 월세: False", example=True)
+    
+    # 당사자 정보
+    owner_nickname: str = Field(..., alias="ownerNickname", description="임대인 이름", example="김철수")
+    buyer_nickname: str = Field(..., alias="buyerNickname", description="임차인 이름", example="이영희")
+    
+    # 임차주택의 표시
+    addr1: str = Field(..., description="도로명 주소", example="서울특별시 강남구 테헤란로 100")
+    land_category: str = Field(..., alias="landCategory", description="토지 지목", example="대지")
+    area: Optional[Decimal] = Field(None, description="토지 면적", example=150.5)
+    
+    building_structure: str = Field(default="철근콘크리트 구조", alias="buildingStructure", 
+                                   description="건물 구조", example="철근콘크리트 구조")
+    purpose: str = Field(..., description="건물 용도", example="아파트")
+    total_floor_area: float = Field(..., alias="totalFloorArea", description="건물 면적", example=85.5)
+    
+    addr2: str = Field(..., description="임차할 부분 주소", example="101동 1501호")
+    supply_area: float = Field(..., alias="supplyArea", description="임차할 부분 면적", example=84.5)
+    
+    # 계약 조건
+    has_tax_arrears: bool = Field(..., alias="hasTaxArrears", description="미납 국세, 지방세 여부", example=False)
+    has_prior_fixed_date: bool = Field(..., alias="hasPriorFixedDate", description="선순위 확정일자 현황", example=True)
+    
+    # 계약 내용
+    text_deposit_price: str = Field(..., alias="textDepositPrice", description="보증금 금액 (한글)", example="삼억")
+    deposit_price: int = Field(..., alias="depositPrice", description="보증금 금액 (숫자)", example=300000000)
+    monthly_rent: int = Field(0, alias="monthlyRent", description="차임(월세)원정", example=0)
+    payment_due_day: int = Field(0, alias="paymentDueDay", description="매월 지불 일자", example=5)
+    bank_account: str = Field("", alias="bankAccount", description="입금 계좌 (은행명 + 계좌번호)", 
+                            example="국민은행 123-45-678901")
+    text_maintenance_fee: str = Field(..., alias="textMaintenanceFee", description="관리비 (한글)", example="십오만")
+    maintenance_fee: int = Field(..., alias="maintenanceFee", description="관리비 (숫자)", example=150000)
+    
+    # 임대차기간 - 입주일
+    expected_move_in_year: int = Field(..., alias="expectedMoveInYear", description="입주 년도", example=2024)
+    expected_move_in_month: int = Field(..., alias="expectedMoveInMonth", description="입주 월", example=3)
+    expected_move_in_day: int = Field(..., alias="expectedMoveInDay", description="입주 일", example=1)
+    
+    # 임대차기간 - 퇴거일
+    expected_move_out_year: int = Field(..., alias="expectedMoveOutYear", description="퇴거 년도", example=2026)
+    expected_move_out_month: int = Field(..., alias="expectedMoveOutMonth", description="퇴거 월", example=2)
+    expected_move_out_day: int = Field(..., alias="expectedMoveOutDay", description="퇴거 일", example=28)
+    
+    # 계약일
+    contract_date_year: int = Field(..., alias="contractDateYear", description="계약 년도", example=2024)
+    contract_date_month: int = Field(..., alias="contractDateMonth", description="계약 월", example=2)
+    contract_date_day: int = Field(..., alias="contractDateDay", description="계약 일", example=20)
+    
+    # 임대인 정보
+    owner_addr: str = Field(..., alias="ownerAddr", description="임대인 주소", example="서울특별시 서초구 반포대로 100")
+    owner_ssn: str = Field(..., alias="ownerSsn", description="임대인 주민등록번호", example="750101-1234567")
+    owner_phone_number: str = Field(..., alias="ownerPhoneNumber", description="임대인 전화번호", example="010-1234-5678")
+    
+    # 임차인 정보
+    buyer_addr: str = Field(..., alias="buyerAddr", description="임차인 주소", example="서울특별시 송파구 올림픽로 200")
+    buyer_ssn: str = Field(..., alias="buyerSsn", description="임차인 주민등록번호", example="880202-2345678")
+    buyer_phone_number: str = Field(..., alias="buyerPhoneNumber", description="임차인 전화번호", example="010-9876-5432")
+    
+    # 특약사항 (리스트)
+    special: Optional[List[str]] = Field(default_factory=list, description="특약사항 목록", 
+                                        example=["본 계약은 주택임대차보호법의 적용을 받습니다.", 
+                                               "임차인은 임대인의 서면 동의 없이 임차권을 양도하거나 전대할 수 없습니다."])
     
     model_config = ConfigDict(populate_by_name=True)
 
@@ -916,25 +1218,18 @@ async def validate_contract(request: ContractReportRequest):
         
         # 특약사항을 clauses_data 형식으로 변환
         clauses_data = {
+            "success": True,
             "timestamp": "",  # ContractValidationGenerator에서 필요하지만 사용하지 않음
             "total_clauses": len(contract_data.get('specialContracts', [])),
-            "clauses": [
-                {
-                    "order": clause.get('order'),
-                    "title": clause.get('title'),
-                    "content": clause.get('content'),
-                    "assessment": {
-                        "owner": {
-                            "level": "안심",
-                            "reason": "검토 대기 중"
-                        },
-                        "tenant": {
-                            "level": "안심",
-                            "reason": "검토 대기 중"
-                        }
-                    }
-                } for clause in contract_data.get('specialContracts', [])
-            ]
+            "data": {
+                "clauses": [
+                    {
+                        "order": clause.get('order'),
+                        "title": clause.get('title'),
+                        "content": clause.get('content')
+                    } for clause in contract_data.get('specialContracts', [])
+                ]
+            }
         }
         
         # 기본 계약 정보 추출
@@ -1352,6 +1647,399 @@ async def general_exception_handler(request, exc):
         content=response.model_dump(exclude_none=True),
         media_type="application/json; charset=utf-8"
     )
+
+
+@app.post("/api/contract/generate",
+    tags=["계약서 생성"],
+    summary="계약서 PDF 생성 (SaveFinalContractDTO)",
+    description="""임대차 계약서 PDF를 생성합니다.
+    
+    **중요**: multipart/form-data 형식으로 각 필드를 개별적으로 전송합니다!
+    
+    **전송 방식**:
+    1. Content-Type: multipart/form-data
+    2. 각 필드를 개별 Form 파라미터로 전송
+    3. special 필드는 여러 개 전송 가능 (배열 형태)
+    4. 서명 이미지 파일들은 선택적
+    
+    **Spring에서 호출 예시**:
+    ```java
+    SaveFinalContractDTO dto = // ... DTO 생성
+    
+    // Multipart 요청 생성
+    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+    
+    // 각 필드를 개별적으로 추가
+    body.add("leaseType", dto.getLeaseType());
+    body.add("ownerNickname", dto.getOwnerNickname());
+    body.add("buyerNickname", dto.getBuyerNickname());
+    body.add("addr1", dto.getAddr1());
+    body.add("landCategory", dto.getLandCategory());
+    body.add("area", dto.getArea());
+    body.add("buildingStructure", dto.getBuildingStructure());
+    body.add("purpose", dto.getPurpose());
+    body.add("totalFloorArea", dto.getTotalFloorArea());
+    body.add("addr2", dto.getAddr2());
+    body.add("supplyArea", dto.getSupplyArea());
+    body.add("hasTaxArrears", dto.getHasTaxArrears());
+    body.add("hasPriorFixedDate", dto.getHasPriorFixedDate());
+    body.add("textDepositPrice", dto.getTextDepositPrice());
+    body.add("depositPrice", dto.getDepositPrice());
+    body.add("monthlyRent", dto.getMonthlyRent());
+    body.add("paymentDueDay", dto.getPaymentDueDay());
+    body.add("bankAccount", dto.getBankAccount());
+    body.add("textMaintenanceFee", dto.getTextMaintenanceFee());
+    body.add("maintenanceFee", dto.getMaintenanceFee());
+    body.add("expectedMoveInYear", dto.getExpectedMoveInYear());
+    body.add("expectedMoveInMonth", dto.getExpectedMoveInMonth());
+    body.add("expectedMoveInDay", dto.getExpectedMoveInDay());
+    body.add("expectedMoveOutYear", dto.getExpectedMoveOutYear());
+    body.add("expectedMoveOutMonth", dto.getExpectedMoveOutMonth());
+    body.add("expectedMoveOutDay", dto.getExpectedMoveOutDay());
+    body.add("contractDateYear", dto.getContractDateYear());
+    body.add("contractDateMonth", dto.getContractDateMonth());
+    body.add("contractDateDay", dto.getContractDateDay());
+    body.add("ownerAddr", dto.getOwnerAddr());
+    body.add("ownerSsn", dto.getOwnerSsn());
+    body.add("ownerPhoneNumber", dto.getOwnerPhoneNumber());
+    body.add("buyerAddr", dto.getBuyerAddr());
+    body.add("buyerSsn", dto.getBuyerSsn());
+    body.add("buyerPhoneNumber", dto.getBuyerPhoneNumber());
+    
+    // 특약사항은 쉼표로 구분된 문자열로 전송
+    String specialClauses = String.join(",", dto.getSpecial());
+    body.add("special", specialClauses);
+    
+    // 조건에 따라 서명 이미지 추가
+    if (dto.getHasTaxArrears() && ownerSign1File != null) {
+        body.add("ownerSign1", new FileSystemResource(ownerSign1File));
+    }
+    if (dto.getHasPriorFixedDate() && ownerSign2File != null) {
+        body.add("ownerSign2", new FileSystemResource(ownerSign2File));
+    }
+    if (ownerSign3File != null) {
+        body.add("ownerSign3", new FileSystemResource(ownerSign3File));
+    }
+    if (buyerSign1File != null) {
+        body.add("buyerSign1", new FileSystemResource(buyerSign1File));
+    }
+    
+    // 요청 전송
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+    
+    HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+    ResponseEntity<byte[]> response = restTemplate.exchange(
+        "http://ai-server/api/contract/generate", 
+        HttpMethod.POST, 
+        request, 
+        byte[].class
+    );
+    ```
+    
+    **서명 이미지 조건**:
+    - ownerSign1: hasTaxArrears가 true일 때만 표시
+    - ownerSign2: hasPriorFixedDate가 true일 때만 표시
+    - ownerSign3: 항상 표시 (기본 서명)
+    - buyerSign1: 항상 표시 (임차인 서명)
+    """,
+    response_model=None,
+    responses={
+        200: {
+            "description": "계약서 생성 성공",
+            "content": {
+                "application/pdf": {
+                    "schema": {
+                        "type": "string",
+                        "format": "binary"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "잘못된 요청",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "필수 필드가 누락되었습니다.",
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "details": "ownerNickname is required"
+                        }
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "서버 오류",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "계약서 생성 중 오류가 발생했습니다.",
+                        "error": {
+                            "code": "INTERNAL_ERROR",
+                            "details": "PDF generation failed"
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
+async def generate_contract(
+    # 전세/월세 구분
+    leaseType: bool = Form(..., description="전세: True / 월세: False", example=True),
+    
+    # 당사자 정보
+    ownerNickname: str = Form(..., description="임대인 이름", example="김철수"),
+    buyerNickname: str = Form(..., description="임차인 이름", example="이영희"),
+    
+    # 임차주택의 표시
+    addr1: str = Form(..., description="도로명 주소", example="서울특별시 강남구 테헤란로 100"),
+    landCategory: str = Form(..., description="토지 지목", example="대지"),
+    area: Optional[float] = Form(None, description="토지 면적", example=150.5),
+    buildingStructure: str = Form(default="철근콘크리트 구조", description="건물 구조", example="철근콘크리트 구조"),
+    purpose: str = Form(..., description="건물 용도", example="아파트"),
+    totalFloorArea: float = Form(..., description="건물 면적", example=85.5),
+    addr2: str = Form(..., description="임차할 부분 주소", example="101동 1501호"),
+    supplyArea: float = Form(..., description="임차할 부분 면적", example=84.5),
+    
+    # 계약 조건
+    hasTaxArrears: bool = Form(..., description="미납 국세, 지방세 여부", example=False),
+    hasPriorFixedDate: bool = Form(..., description="선순위 확정일자 현황", example=True),
+    
+    # 계약 내용
+    textDepositPrice: str = Form(..., description="보증금 금액 (한글)", example="삼억"),
+    depositPrice: int = Form(..., description="보증금 금액 (숫자)", example=300000000),
+    monthlyRent: int = Form(default=0, description="차임(월세)원정", example=0),
+    paymentDueDay: int = Form(default=0, description="매월 지불 일자", example=5),
+    bankAccount: str = Form(default="", description="입금 계좌 (은행명 + 계좌번호)", example="국민은행 123-45-678901"),
+    textMaintenanceFee: str = Form(..., description="관리비 (한글)", example="십오만"),
+    maintenanceFee: int = Form(..., description="관리비 (숫자)", example=150000),
+    
+    # 임대차기간 - 입주일
+    expectedMoveInYear: int = Form(..., description="입주 년도", example=2024),
+    expectedMoveInMonth: int = Form(..., description="입주 월", example=3),
+    expectedMoveInDay: int = Form(..., description="입주 일", example=1),
+    
+    # 임대차기간 - 퇴거일
+    expectedMoveOutYear: int = Form(..., description="퇴거 년도", example=2026),
+    expectedMoveOutMonth: int = Form(..., description="퇴거 월", example=2),
+    expectedMoveOutDay: int = Form(..., description="퇴거 일", example=28),
+    
+    # 계약일
+    contractDateYear: int = Form(..., description="계약 년도", example=2024),
+    contractDateMonth: int = Form(..., description="계약 월", example=2),
+    contractDateDay: int = Form(..., description="계약 일", example=20),
+    
+    # 임대인 정보
+    ownerAddr: str = Form(..., description="임대인 주소", example="서울특별시 서초구 반포대로 100"),
+    ownerSsn: str = Form(..., description="임대인 주민등록번호", example="750101-1234567"),
+    ownerPhoneNumber: str = Form(..., description="임대인 전화번호", example="010-1234-5678"),
+    
+    # 임차인 정보
+    buyerAddr: str = Form(..., description="임차인 주소", example="서울특별시 송파구 올림픽로 200"),
+    buyerSsn: str = Form(..., description="임차인 주민등록번호", example="880202-2345678"),
+    buyerPhoneNumber: str = Form(..., description="임차인 전화번호", example="010-9876-5432"),
+    
+    # 특약사항 (쉼표로 구분된 문자열)
+    special: Optional[str] = Form(default="", description="특약사항 (쉼표로 구분)"),
+    
+    # 서명 이미지 파일들은 선택적
+    ownerSign1: Optional[UploadFile] = File(None, description="임대인 서명1 (미납세금 있을 때)"),
+    ownerSign2: Optional[UploadFile] = File(None, description="임대인 서명2 (선순위 확정일자 있을 때)"),
+    ownerSign3: Optional[UploadFile] = File(None, description="임대인 서명3 (기본)"),
+    buyerSign1: Optional[UploadFile] = File(None, description="임차인 서명")
+):
+    """계약서 PDF 생성 엔드포인트 (개별 Form 필드 + 서명 이미지)
+    
+    **사용 방법**:
+    1. Content-Type: multipart/form-data
+    2. 각 필드를 개별 Form 파라미터로 전송
+    3. special 필드는 쉼표로 구분된 문자열로 전송 (예: "특약1,특약2,특약3")
+    4. 서명 이미지 파일들을 별도 필드로 전송
+    
+    **예시 (Spring RestTemplate)**:
+    ```java
+    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+    body.add("leaseType", dto.getLeaseType());
+    body.add("ownerNickname", dto.getOwnerNickname());
+    body.add("buyerNickname", dto.getBuyerNickname());
+    // ... 각 필드 추가
+    
+    // 특약사항은 쉼표로 구분된 문자열로 전송
+    String specialClauses = String.join(",", dto.getSpecial());
+    body.add("special", specialClauses);
+    
+    // 서명 이미지 추가
+    if (dto.getHasTaxArrears()) {
+        body.add("ownerSign1", new FileSystemResource(ownerSign1File));
+    }
+    ```
+    """
+    
+    try:
+        logger.info(f"Contract generation requested for {ownerNickname} - {buyerNickname}")
+        
+        # 템플릿 경로 설정 (필수)
+        template_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            'data', 'contract', 'input.pdf'
+        )
+        
+        # 템플릿 파일 존재 확인 (필수)
+        if not os.path.exists(template_path):
+            logger.error(f"Template file not found: {template_path}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "message": "계약서 템플릿 파일을 찾을 수 없습니다.",
+                    "error": {
+                        "code": "TEMPLATE_NOT_FOUND",
+                        "details": f"Template required at: {template_path}"
+                    }
+                }
+            )
+        
+        # Form 데이터로부터 계약서 데이터 딕셔너리 생성
+        contract_dict = {
+            # 전세/월세 구분
+            "leaseType": leaseType,
+            
+            # 당사자 정보
+            "ownerNickname": ownerNickname,
+            "buyerNickname": buyerNickname,
+            
+            # 임차주택의 표시
+            "addr1": addr1,
+            "landCategory": landCategory,
+            "area": area,
+            "buildingStructure": buildingStructure,
+            "purpose": purpose,
+            "totalFloorArea": totalFloorArea,
+            "addr2": addr2,
+            "supplyArea": supplyArea,
+            
+            # 계약 조건
+            "hasTaxArrears": hasTaxArrears,
+            "hasPriorFixedDate": hasPriorFixedDate,
+            
+            # 계약 내용
+            "textDepositPrice": textDepositPrice,
+            "depositPrice": depositPrice,
+            "monthlyRent": monthlyRent,
+            "paymentDueDay": paymentDueDay,
+            "bankAccount": bankAccount,
+            "textMaintenanceFee": textMaintenanceFee,
+            "maintenanceFee": maintenanceFee,
+            
+            # 임대차기간
+            "expectedMoveInYear": expectedMoveInYear,
+            "expectedMoveInMonth": expectedMoveInMonth,
+            "expectedMoveInDay": expectedMoveInDay,
+            "expectedMoveOutYear": expectedMoveOutYear,
+            "expectedMoveOutMonth": expectedMoveOutMonth,
+            "expectedMoveOutDay": expectedMoveOutDay,
+            
+            # 계약일
+            "contractDateYear": contractDateYear,
+            "contractDateMonth": contractDateMonth,
+            "contractDateDay": contractDateDay,
+            
+            # 임대인 정보
+            "ownerAddr": ownerAddr,
+            "ownerSsn": ownerSsn,
+            "ownerPhoneNumber": ownerPhoneNumber,
+            
+            # 임차인 정보
+            "buyerAddr": buyerAddr,
+            "buyerSsn": buyerSsn,
+            "buyerPhoneNumber": buyerPhoneNumber,
+            
+            # 특약사항 (쉼표로 구분된 문자열을 리스트로 변환)
+            "special": [clause.strip() for clause in special.split(',') if clause.strip()] if special else []
+        }
+        
+        # 이미지 처리 (조건에 따라 필터링됨)
+        images = {}
+        
+        # hasTaxArrears가 true일 때만 ownerSign1 포함
+        if hasTaxArrears and ownerSign1:
+            images["ownerSign1"] = await ownerSign1.read()
+            logger.debug("Including ownerSign1 (hasTaxArrears=True)")
+        
+        # hasPriorFixedDate가 true일 때만 ownerSign2 포함
+        if hasPriorFixedDate and ownerSign2:
+            images["ownerSign2"] = await ownerSign2.read()
+            logger.debug("Including ownerSign2 (hasPriorFixedDate=True)")
+        
+        # ownerSign3과 buyerSign1은 항상 포함 가능
+        if ownerSign3:
+            images["ownerSign3"] = await ownerSign3.read()
+        if buyerSign1:
+            images["buyerSign1"] = await buyerSign1.read()
+        
+        # PDF 생성기 인스턴스 생성
+        pdf_replacer = PDFTextReplacer()
+        
+        # PDF 생성 (템플릿 기반, 조건부 이미지 포함)
+        pdf_content = pdf_replacer.generate_contract_pdf(
+            template_path, 
+            contract_dict,  # contract_data가 아닌 contract_dict 사용
+            images if images else None
+        )
+        
+        # 파일명 생성
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"contract_{ownerNickname}_{buyerNickname}_{timestamp}.pdf"
+        
+        # 임시 파일로 저장
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        temp_file.write(pdf_content)
+        temp_file.close()
+        
+        logger.info(f"Contract PDF generated successfully: {filename}")
+        
+        # Response로 PDF 직접 반환
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{filename}"
+            }
+        )
+        
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": "입력 데이터 검증 실패",
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": str(e)
+                }
+            }
+        )
+    except Exception as e:
+        logger.error(f"Contract generation failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "계약서 생성 중 오류가 발생했습니다.",
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "details": str(e)
+                }
+            }
+        )
 
 
 if __name__ == "__main__":
