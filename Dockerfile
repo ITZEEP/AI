@@ -5,36 +5,27 @@ FROM python:3.12-slim AS base
 WORKDIR /app
 
 # Install system dependencies for OpenCV and PDF processing
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build essentials
-    build-essential \
     gcc \
     g++ \
-    # SQLite3 (for ChromaDB)
-    sqlite3 \
-    libsqlite3-dev \
-    # OpenCV dependencies
-    libgl1-mesa-glx \
+    # OpenCV and image processing dependencies
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
     libgomp1 \
-    # PDF and image processing
-    libgdal-dev \
+    # PDF and OCR tools
     poppler-utils \
     tesseract-ocr \
     tesseract-ocr-kor \
-    # Additional dependencies for PyMuPDF
-    libgtk-3-0 \
-    libnotify-dev \
-    libsdl-pango-dev \
-    libwebp-dev \
-    zlib1g-dev \
-    libjpeg-dev \
-    libopenjp2-7-dev \
-    libpng-dev \
-    libtiff-dev \
+    # Image format libraries
+    libjpeg62-turbo \
+    libpng16-16 \
+    libtiff6 \
+    libwebp7 \
+    libopenjp2-7 \
     # Clean up
     && rm -rf /var/lib/apt/lists/*
 
