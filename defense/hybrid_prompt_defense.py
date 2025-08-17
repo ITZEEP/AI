@@ -38,7 +38,7 @@ class HybridPromptDefense:
             r'(?i)(AI|프롬포트|prompt).*?(시스템|system).*?(무시|ignore|변경|change)',
             r'(?i)(시스템|system).*?(AI|프롬포트|prompt|지시사항|instruction).*?(무시|ignore)',
             
-            # 🔥 누락된 패턴들 추가
+            # 누락된 패턴들 추가
             # "시스템 설정을 무시하고" 패턴
             r'(?i)(시스템|system).*?(설정|config|rule).*?(무시|ignore)',
             
@@ -406,6 +406,6 @@ if __name__ == "__main__":
             
             print("=" * 70)
         
-        print("\n✅ 하이브리드 방어 시스템 테스트 완료!")
+        print("\n하이브리드 방어 시스템 테스트 완료!")
     
     test_hybrid_defense()

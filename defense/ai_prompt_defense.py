@@ -404,7 +404,7 @@ if __name__ == "__main__":
                 test_case['type']
             )
             
-            print(f"안전성: {'✅ 안전' if result['is_safe'] else '🔒 위험'}")
+            print(f"안전성: {' 안전' if result['is_safe'] else '🔒 위험'}")
             print(f"정화된 내용: {result['cleaned_content']}")
             if result['removed_sentences']:
                 print(f"제거된 문장 수: {len(result['removed_sentences'])}개")
@@ -413,6 +413,6 @@ if __name__ == "__main__":
             
             print("-" * 80)
         
-        print("\n✅ AI 방어 모델 테스트 완료!")
+        print("\nAI 방어 모델 테스트 완료!")
     
     test_ai_defense()
