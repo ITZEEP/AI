@@ -80,6 +80,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # 건축물대장 파서 인스턴스 생성
 building_extractor = BuildingInfoExtractor()
 
@@ -1886,31 +1887,43 @@ async def generate_contract(
     """
     
     try:
-        # UTF-8 인코딩 처리 (multipart/form-data 한글 문제 해결)
-        try:
-            ownerNickname = ownerNickname.encode('latin-1').decode('utf-8')
-            buyerNickname = buyerNickname.encode('latin-1').decode('utf-8')
-            addr1 = addr1.encode('latin-1').decode('utf-8')
-            addr2 = addr2.encode('latin-1').decode('utf-8')
-            landCategory = landCategory.encode('latin-1').decode('utf-8')
-            buildingStructure = buildingStructure.encode('latin-1').decode('utf-8')
-            purpose = purpose.encode('latin-1').decode('utf-8')
-            textDepositPrice = textDepositPrice.encode('latin-1').decode('utf-8')
-            bankAccount = bankAccount.encode('latin-1').decode('utf-8') if bankAccount else ""
-            textMaintenanceFee = textMaintenanceFee.encode('latin-1').decode('utf-8')
-            ownerAddr = ownerAddr.encode('latin-1').decode('utf-8')
-            buyerAddr = buyerAddr.encode('latin-1').decode('utf-8')
-            ownerSsn = ownerSsn.encode('latin-1').decode('utf-8')
-            buyerSsn = buyerSsn.encode('latin-1').decode('utf-8')
-            ownerPhoneNumber = ownerPhoneNumber.encode('latin-1').decode('utf-8')
-            buyerPhoneNumber = buyerPhoneNumber.encode('latin-1').decode('utf-8')
+        # UTF-8 인코딩 처리 함수
+        def fix_encoding(text):
+            """multipart/form-data로 받은 잘못된 인코딩 수정"""
+            if not text:
+                return text
+            if not isinstance(text, str):
+                return text
             
-            # 특약사항도 인코딩 처리
-            if special:
-                special = special.encode('latin-1').decode('utf-8')
-        except (UnicodeDecodeError, UnicodeEncodeError):
-            # 이미 UTF-8로 되어있는 경우 패스
-            pass
+            try:
+                # latin-1로 인코딩된 바이트를 UTF-8로 디코딩
+                return text.encode('latin-1').decode('utf-8')
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                # 이미 정상적인 UTF-8이거나 다른 인코딩인 경우
+                return text
+        
+        # 모든 문자열 필드에 인코딩 수정 적용
+        ownerNickname = fix_encoding(ownerNickname)
+        buyerNickname = fix_encoding(buyerNickname)
+        addr1 = fix_encoding(addr1)
+        addr2 = fix_encoding(addr2)
+        landCategory = fix_encoding(landCategory)
+        buildingStructure = fix_encoding(buildingStructure)
+        purpose = fix_encoding(purpose)
+        textDepositPrice = fix_encoding(textDepositPrice)
+        bankAccount = fix_encoding(bankAccount) if bankAccount else ""
+        textMaintenanceFee = fix_encoding(textMaintenanceFee)
+        ownerAddr = fix_encoding(ownerAddr)
+        buyerAddr = fix_encoding(buyerAddr)
+        ownerPhoneNumber = fix_encoding(ownerPhoneNumber)
+        buyerPhoneNumber = fix_encoding(buyerPhoneNumber)
+        
+        # 주민등록번호는 하이픈 포함하므로 별도 처리
+        ownerSsn = fix_encoding(ownerSsn) if ownerSsn else ""
+        buyerSsn = fix_encoding(buyerSsn) if buyerSsn else ""
+        
+        # 특약사항도 인코딩 처리
+        special = fix_encoding(special) if special else ""
         
         logger.info(f"Contract generation requested for {ownerNickname} - {buyerNickname}")
         
@@ -2065,6 +2078,100 @@ async def generate_contract(
             content={
                 "success": False,
                 "message": "계약서 생성 중 오류가 발생했습니다.",
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "details": str(e)
+                }
+            }
+        )
+
+
+@app.post("/api/contract/generate-json",
+    tags=["계약서 생성"],
+    summary="계약서 PDF 생성 (JSON 방식)",
+    description="""JSON 방식으로 계약서 PDF를 생성합니다.
+    
+    **인코딩 문제가 없는 안전한 방식입니다!**
+    
+    **Spring에서 호출 예시**:
+    ```java
+    SaveFinalContractDTO dto = // ... DTO 생성
+    
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.set("Accept-Charset", "UTF-8");
+    
+    HttpEntity<SaveFinalContractDTO> entity = new HttpEntity<>(dto, headers);
+    
+    ResponseEntity<byte[]> response = restTemplate.exchange(
+        "http://ai-api-url/api/contract/generate-json",
+        HttpMethod.POST,
+        entity,
+        byte[].class
+    );
+    ```
+    """,
+    response_model=None
+)
+async def generate_contract_json(contract_data: SaveFinalContractDTO):
+    """JSON 방식의 계약서 PDF 생성"""
+    
+    try:
+        logger.info(f"Contract generation (JSON) requested for {contract_data.owner_nickname} - {contract_data.buyer_nickname}")
+        
+        # 템플릿 경로 설정
+        template_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            'data', 'contract', 'input.pdf'
+        )
+        
+        if not os.path.exists(template_path):
+            logger.error(f"Template file not found: {template_path}")
+            raise HTTPException(status_code=500, detail="템플릿 파일을 찾을 수 없습니다.")
+        
+        # PDF 생성기 초기화
+        pdf_replacer = PDFTextReplacer(template_path)
+        
+        # SaveFinalContractDTO를 딕셔너리로 변환
+        contract_dict = contract_data.model_dump()
+        
+        # snake_case를 camelCase로 변환
+        contract_dict_camel = {}
+        for key, value in contract_dict.items():
+            # snake_case를 camelCase로 변환
+            camel_key = ''.join(word.capitalize() if i > 0 else word for i, word in enumerate(key.split('_')))
+            contract_dict_camel[camel_key] = value
+        
+        # PDF 생성
+        pdf_content = pdf_replacer.generate_contract_pdf(contract_dict_camel)
+        
+        if not pdf_content:
+            raise HTTPException(status_code=500, detail="PDF 생성에 실패했습니다.")
+        
+        # 파일명 생성
+        import urllib.parse
+        filename = urllib.parse.quote(
+            f"임대차계약서_{contract_data.owner_nickname}_{contract_data.buyer_nickname}_{datetime.now().strftime('%Y%m%d')}.pdf"
+        )
+        
+        # PDF 응답 반환
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{filename}"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Contract generation (JSON) failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": f"계약서 생성 중 오류가 발생했습니다: {str(e)}",
                 "error": {
                     "code": "INTERNAL_ERROR",
                     "details": str(e)
