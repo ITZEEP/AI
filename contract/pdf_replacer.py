@@ -568,8 +568,8 @@ class PDFTextReplacer:
                 # ownerSign3과 buyerSign1은 항상 포함 (이미지가 있을 때만)
                 if 'ownerSign3' in images:
                     filtered_images['ownerSign3'] = images['ownerSign3']
-                if 'buyerSign1' in images:
-                    filtered_images['buyerSign1'] = images['buyerSign1']
+                if 'buyerSign' in images:
+                    filtered_images['buyerSign'] = images['buyerSign']
             
             # PDF 생성
             success = self.replace_text(

@@ -530,7 +530,7 @@ class SaveFinalContractDTO(BaseModel):
     
     # 임차주택의 표시
     addr1: str = Field(..., description="도로명 주소", example="서울특별시 강남구 테헤란로 100")
-    land_category: str = Field(..., alias="landCategory", description="토지 지목", example="대지")
+    land_category: Optional[str] = Field(None, alias="landCategory", description="토지 지목", example="대지")
     area: Optional[Decimal] = Field(None, description="토지 면적", example=150.5)
     
     building_structure: str = Field(default="철근콘크리트 구조", alias="buildingStructure", 
@@ -2158,10 +2158,16 @@ async def generate_contract_json(contract_data: SaveFinalContractDTO):
         import base64
         
         def safe_b64decode(b64_string):
-            """Base64 문자열을 안전하게 디코딩 (패딩 문제 해결)"""
+            """Base64 문자열을 안전하게 디코딩 (data URL 형식 지원)"""
             if not b64_string:
                 return None
             try:
+                # data:image/xxx;base64, 형식 처리
+                if b64_string.startswith('data:'):
+                    # data URL 형식에서 실제 base64 부분 추출
+                    header, base64_data = b64_string.split(',', 1)
+                    b64_string = base64_data
+                
                 # 패딩 문제 해결 - base64 문자열 길이를 4의 배수로 맞춤
                 missing_padding = len(b64_string) % 4
                 if missing_padding:
@@ -2196,7 +2202,7 @@ async def generate_contract_json(contract_data: SaveFinalContractDTO):
         if contract_data.buyer_sign_base64:
             decoded = safe_b64decode(contract_data.buyer_sign_base64)
             if decoded:
-                images['buyerSign1'] = decoded
+                images['buyerSign'] = decoded
                 logger.info("Decoded buyer signature 1")
         
         # snake_case를 camelCase로 변환 (Base64 필드 제외)
