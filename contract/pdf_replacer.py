@@ -553,16 +553,16 @@ class PDFTextReplacer:
             # 조건에 따라 이미지 필터링
             filtered_images = {}
             if images:
-                # 옵셔널 필드: 받지 않으면 False로 처리 (서명 없이 계약서 생성)
-                has_tax_arrears = contract_data.get('hasTaxArrears', False)
-                has_prior_fixed_date = contract_data.get('hasPriorFixedDate', False)
+                # 옵셔널 필드: 값이 없으면 None
+                has_tax_arrears = contract_data.get('hasTaxArrears')
+                has_prior_fixed_date = contract_data.get('hasPriorFixedDate')
                 
-                # ownerSign1은 미납 세금이 있을 때만 포함
-                if has_tax_arrears and 'ownerSign1' in images:
+                # ownerSign1은 미납 세금이 명시적으로 있을 때만 포함
+                if has_tax_arrears is not None and has_tax_arrears and 'ownerSign1' in images:
                     filtered_images['ownerSign1'] = images['ownerSign1']
                 
-                # ownerSign2는 선순위 확정일자가 있을 때만 포함
-                if has_prior_fixed_date and 'ownerSign2' in images:
+                # ownerSign2는 선순위 확정일자가 명시적으로 있을 때만 포함
+                if has_prior_fixed_date is not None and has_prior_fixed_date and 'ownerSign2' in images:
                     filtered_images['ownerSign2'] = images['ownerSign2']
                 
                 # ownerSign3과 buyerSign1은 항상 포함 (이미지가 있을 때만)
@@ -618,35 +618,53 @@ class PDFTextReplacer:
         })
         
         # hasTaxArrears로 체크박스 설정 (미납 국세/지방세)
-        # 옵셔널 필드: 받지 않으면 False (없음)으로 처리
-        has_tax_arrears = contract_data.get('hasTaxArrears', False)
-        replacements.update({
-            "${3}": "■" if has_tax_arrears else "□",  # 있음
-            "${4}": "□" if has_tax_arrears else "■",  # 없음
-        })
+        # 옵셔널 필드: 받지 않으면 둘다 빈 체크박스
+        has_tax_arrears = contract_data.get('hasTaxArrears')
+        if has_tax_arrears is not None:
+            replacements.update({
+                "${3}": "■" if has_tax_arrears else "□",  # 있음
+                "${4}": "□" if has_tax_arrears else "■",  # 없음
+            })
+        else:
+            replacements.update({
+                "${3}": "□",  # 있음 - 빈 체크박스
+                "${4}": "□",  # 없음 - 빈 체크박스
+            })
         
         # hasPriorFixedDate로 체크박스 설정 (선순위 확정일자)
-        # 옵셔널 필드: 받지 않으면 False (없음)으로 처리
-        has_prior_fixed_date = contract_data.get('hasPriorFixedDate', False)
-        replacements.update({
-            "${5}": "■" if has_prior_fixed_date else "□",  # 있음
-            "${6}": "□" if has_prior_fixed_date else "■",  # 없음
-        })
+        # 옵셔널 필드: 받지 않으면 둘다 빈 체크박스
+        has_prior_fixed_date = contract_data.get('hasPriorFixedDate')
+        if has_prior_fixed_date is not None:
+            replacements.update({
+                "${5}": "■" if has_prior_fixed_date else "□",  # 있음
+                "${6}": "□" if has_prior_fixed_date else "■",  # 없음
+            })
+        else:
+            replacements.update({
+                "${5}": "□",  # 있음 - 빈 체크박스
+                "${6}": "□",  # 없음 - 빈 체크박스
+            })
         
         # 추가 체크박스 (기본값 설정 - 필요시 조정)
-        checkbox4 = contract_data.get('checkbox4', False)
-        replacements.update({
-            "${7}": "■" if checkbox4 else "□",
-            "${8}": "□" if checkbox4 else "■",
-        })
+        checkbox4 = contract_data.get('checkbox4', True)
+        if checkbox4 is not None:
+            replacements.update({
+                "${7}": "■" if checkbox4 else "□",
+                "${8}": "□" if checkbox4 else "■",
+            })
+        else:
+            replacements.update({
+                "${7}": "□",
+                "${8}": "□"
+            })
         
         # 주소 정보
         replacements.update({
-            "${roadAddr}": str(contract_data.get('addr1', '')),  # addr1이 도로명 주소
+            "${addr1}": str(contract_data.get('addr1', '')),  # addr1이 도로명 주소
             "${addr2}": str(contract_data.get('addr2', '')),     # addr2가 임차할 부분 주소
         })
         
-        # 면적 정보
+        # 면적 정보ddr  
         area = contract_data.get('area', 0)
         supply_area = contract_data.get('supplyArea', 0)
         total_floor_area = contract_data.get('totalFloorArea', 0)
@@ -718,23 +736,23 @@ class PDFTextReplacer:
         })
         
         # 조건부 임대인 정보 (미납 세금 있을 때만)
-        if has_tax_arrears:
+        if has_tax_arrears is not None and has_tax_arrears:
             replacements.update({
                 "${owner3}": str(contract_data.get('ownerNickname', '')),  # 미납 세금 있을 때 임대인 이름
             })
         else:
             replacements.update({
-                "${owner3}": "",  # 미납 세금 없으면 빈 문자열
+                "${owner3}": "",  # 미납 세금 없거나 정보 없으면 빈 문자열
             })
         
         # 조건부 임대인 정보 (선순위 확정일자 있을 때만)
-        if has_prior_fixed_date:
+        if has_prior_fixed_date is not None and has_prior_fixed_date:
             replacements.update({
                 "${owner5}": str(contract_data.get('ownerNickname', '')),  # 선순위 확정일자 있을 때 임대인 이름
             })
         else:
             replacements.update({
-                "${owner5}": "",  # 선순위 확정일자 없으면 빈 문자열
+                "${owner5}": "",  # 선순위 확정일자 없거나 정보 없으면 빈 문자열
             })
         
         # 특약사항 (리스트로 처리)
