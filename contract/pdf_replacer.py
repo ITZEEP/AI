@@ -749,7 +749,7 @@ class PDFTextReplacer:
             "${ownerSign1}": "" if has_tax_arrears else "",  # 미납 세금 있을 때만 서명1 (이미지로 대체)
             "${ownerSign2}": "" if has_prior_fixed_date else "",  # 선순위 확정일자 있을 때만 서명2 (이미지로 대체)
             "${ownerSign3}": "",  # 기본 서명3 (이미지로 대체)
-            "${buyerSign1}": "",  # 임차인 서명 (이미지로 대체)
+            "${buyerSign}": "",  # 임차인 서명 (이미지로 대체)
         })
         
         return replacements

@@ -589,7 +589,7 @@ class SaveFinalContractDTO(BaseModel):
     owner_sign1_base64: Optional[str] = Field(None, alias="ownerSign1Base64", description="임대인 서명1 Base64 (미납세금 있을 때)")
     owner_sign2_base64: Optional[str] = Field(None, alias="ownerSign2Base64", description="임대인 서명2 (선순위 확정일자 있을 때)")
     owner_sign3_base64: Optional[str] = Field(None, alias="ownerSign3Base64", description="임대인 서명3 (기본)")
-    buyer_sign1_base64: Optional[str] = Field(None, alias="buyerSign1Base64", description="임차인 서명 Base64")
+    buyer_sign_base64: Optional[str] = Field(None, alias="buyerSignBase64", description="임차인 서명 Base64")
     
     model_config = ConfigDict(populate_by_name=True)
 
@@ -2193,8 +2193,8 @@ async def generate_contract_json(contract_data: SaveFinalContractDTO):
                 logger.info("Decoded owner signature 3 (main)")
         
         # 임차인 서명
-        if contract_data.buyer_sign1_base64:
-            decoded = safe_b64decode(contract_data.buyer_sign1_base64)
+        if contract_data.buyer_sign_base64:
+            decoded = safe_b64decode(contract_data.buyer_sign_base64)
             if decoded:
                 images['buyerSign1'] = decoded
                 logger.info("Decoded buyer signature 1")
