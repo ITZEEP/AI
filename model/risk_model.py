@@ -530,10 +530,10 @@ class RiskAnalysisModel:
     def _check_building_purpose_match(self, building_purpose: str, residence_type: str) -> bool:
         """건축물 용도와 매물 타입 일치성 확인"""
         purpose_mapping = {
-            "APARTMENT": ["아파트", "공동주택"],
+            "APARTMENT": ["아파트"],
             "OFFICETEL": ["오피스텔", "업무시설"],
             "VILLA": ["다세대주택", "연립주택"],
-            "ONE_ROOM": ["원룸", "단독주택", "다가구주택"]
+            "ONE_ROOM": ["원룸", "단독주택", "다가구주택", "공동주택"]
         }
         
         expected_purposes = purpose_mapping.get(residence_type, [])
@@ -592,7 +592,7 @@ class RiskAnalysisModel:
             template="""
 당신은 부동산 전문가입니다. 4개 카테고리별로 개별 위험도가 판정된 매물에 대해 상세 분석을 수행해주세요.
 건축물대장에서 용도가 공동주택이면 무조건 안전이 나오도록 해주세요.
-
+ bb
 ## 분석 데이터:
 **사용자 정보**: {user_info}
 **매물 정보**: {property_info}
