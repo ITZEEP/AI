@@ -591,6 +591,7 @@ class RiskAnalysisModel:
                        "relevant_laws", "category_risks", "mortgage_ratio", "address_summary"],
             template="""
 당신은 부동산 전문가입니다. 4개 카테고리별로 개별 위험도가 판정된 매물에 대해 상세 분석을 수행해주세요.
+건축물대장에서 용도가 공동주택이면 무조건 안전이 나오도록 해주세요.
 
 ## 분석 데이터:
 **사용자 정보**: {user_info}
