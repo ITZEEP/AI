@@ -457,7 +457,7 @@ class RiskAnalysisModel:
             building_risk = RiskLevel.DANGER
         elif not self._check_building_purpose_match(building_data.purpose, property_info.residence_type):
             logger.info(f"용도 불일치: 건축물({building_data.purpose}) vs 매물타입({property_info.residence_type})")
-            building_risk = RiskLevel.WARN
+            building_risk = RiskLevel.SAFE
         else:
             logger.info("건축물 적법성 및 용도 일치 확인")
             
